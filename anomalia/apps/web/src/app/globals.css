@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Colour tokens as raw RGB channels.
+ *
+ * The channel form (`12 12 12` rather than `#0c0c0c`) is what lets the Tailwind
+ * preset compose them with `<alpha-value>`, so `text-ink/60` works. Themes
+ * change these nine lines and nothing else.
+ */
+:root {
+  --canvas: 251 251 250;      /* warm off-white — paper, not screen */
+  --ink: 13 13 13;            /* near-black; pure #000 reads harsh on white */
+  --muted: 110 110 108;
+  --surface: 255 255 255;
+  --hairline: 0 0 0;          /* always used with an opacity modifier */
+  --inverse: 13 13 13;        /* filled buttons, inverted blocks */
+  --inverse-ink: 250 250 249;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: 10 10 10;
+    --ink: 242 242 240;
+    --muted: 138 138 134;
+    --surface: 18 18 18;
+    --hairline: 255 255 255;
+    --inverse: 245 245 243;
+    --inverse-ink: 12 12 12;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Anchor links land below the sticky header rather than under it. */
+    scroll-padding-top: 6rem;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans;
+    /* Optical sizing and contextual alternates: small, free typographic wins. */
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'calt';
+  }
+
+  ::selection {
+    @apply bg-ink text-canvas;
+  }
+
+  /* One focus treatment everywhere — visible, unobtrusive, never removed. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ink/40 ring-offset-2 ring-offset-canvas;
+  }
+
+  /* Headings inherit weight from the type scale, not from the browser. */
+  h1, h2, h3, h4 {
+    @apply font-medium text-balance;
+  }
+}
+
+@layer utilities {
+  /**
+   * The editorial grid: 12 columns at desktop, 6 at tablet, 4 on phones.
+   * Every section aligns to it, which is what produces the underlying order
+   * that minimalism depends on — with no ornament, misalignment is all you see.
+   */
+  .grid-editorial {
+    @apply grid grid-cols-4 gap-x-gutter md:grid-cols-6 lg:grid-cols-12;
+  }
+
+  /* A hairline that spans the full viewport while its content stays on-grid. */
+  .rule {
+    @apply border-t border-hairline/[0.12];
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
+  }
+}
+
+/* Honour a reduced-motion preference for every animation we ship. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

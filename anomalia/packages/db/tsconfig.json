@@ -1,0 +1,1 @@
+{ "extends": "@anomalia/tsconfig/library.json", "include": ["src/**/*"] }

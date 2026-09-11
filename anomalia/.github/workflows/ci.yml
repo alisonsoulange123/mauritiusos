@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push: { branches: [main, develop] }
+  pull_request: { branches: [main, develop] }
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs first and alone: a boundary violation means the architecture has been
+  # broken, and there is no point spending CI minutes on the rest until it is
+  # fixed. It needs no install, so it fails in seconds.
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: node scripts/check-boundaries.mjs
+
+  node:
+    needs: boundaries
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: anomalia
+          POSTGRES_PASSWORD: anomalia
+          POSTGRES_DB: anomalia_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U anomalia" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://anomalia:anomalia@localhost:5432/anomalia_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-secret-value-that-is-definitely-long-enough-32
+      EVENT_BUS_DRIVER: memory
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm contracts:export
+      # Fails if the generated Python contract is stale — the Node and Python
+      # sides cannot drift apart without CI noticing.
+      - run: git diff --exit-code packages/contracts/generated
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+  python:
+    needs: boundaries
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: apps/ai-worker }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: mypy src
+      - run: pytest -q

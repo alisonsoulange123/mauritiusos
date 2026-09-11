@@ -1,0 +1,25 @@
+name: security
+
+on:
+  schedule: [{ cron: '0 3 * * 1' }]
+  pull_request: { branches: [main] }
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # High and above only: a moderate advisory in a dev-only dependency
+      # should not block a hotfix at 2am.
+      - run: pnpm audit --audit-level high
+      - name: Check for committed secrets
+        run: |
+          if git grep -nE '(sk-[a-zA-Z0-9]{20,}|BEGIN (RSA|OPENSSH) PRIVATE KEY)' -- ':!*.example' ':!docs/*'; then
+            echo "::error::possible secret committed"
+            exit 1
+          fi
