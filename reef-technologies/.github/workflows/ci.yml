@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  push: { branches: [main, develop] }
+  pull_request: { branches: [main, develop] }
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs first and alone: a boundary violation means the architecture has been
+  # broken, and there is no point spending CI minutes on the rest until it is
+  # fixed. It needs no install, so it fails in seconds.
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: node scripts/check-boundaries.mjs
+
+  node:
+    needs: boundaries
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: reef_technologies
+          POSTGRES_PASSWORD: reef_technologies
+          POSTGRES_DB: reef_technologies_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reef_technologies" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://reef_technologies:reef_technologies@localhost:5432/reef_technologies_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-secret-value-that-is-definitely-long-enough-32
+      EVENT_BUS_DRIVER: memory
+      NODE_ENV: test
+      # The integration harness connects with these, so it can be pointed at a
+      # throwaway database without disturbing DATABASE_URL for anything else.
+      TEST_DATABASE_URL: postgres://reef_technologies:reef_technologies@localhost:5432/reef_technologies_test
+      TEST_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm contracts:export
+      # Fails if the generated Python contract is stale — the Node and Python
+      # sides cannot drift apart without CI noticing.
+      - run: git diff --exit-code packages/contracts/generated
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+      # ── Integration ────────────────────────────────────────────────────
+      # A service container starts from the bare image and never runs
+      # `infrastructure/docker/init-db.sql`, so the extensions the schema
+      # depends on have to be created here. Without `vector` the migration
+      # fails outright; without `unaccent` the knowledge search does, and only
+      # for the French half of the corpus.
+      - name: Create database extensions
+        run: |
+          PGPASSWORD=reef_technologies psql -h localhost -U reef_technologies -d reef_technologies_test \
+            -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS unaccent;'
+
+      - name: Migrate the test database
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://reef_technologies:reef_technologies@localhost:5432/reef_technologies_test
+
+      # These boot the real application against those services and drive it
+      # over HTTP. They skip when the infrastructure is absent, which is why
+      # the two steps above matter: a silent skip here would look like a pass.
+      - run: pnpm test:integration
+
+  python:
+    needs: boundaries
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: apps/ai-worker }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: mypy src
+      - run: pytest -q

@@ -1,0 +1,161 @@
+# The whole platform, from images.
+#
+#     docker compose -f infrastructure/docker/docker-compose.yml \
+#                    -f infrastructure/docker/docker-compose.app.yml up --build
+#
+# Layered on top of the infrastructure compose file rather than repeating it, so
+# `docker-compose.yml` stays the one-command local database for everyday work
+# and this adds the three services on top.
+#
+# This is not a production deployment. It is the thing that proves the images
+# are correct and the services can find each other — the step every real target
+# (ECS, Fly, Kubernetes) starts from, and the one that catches "works on my
+# laptop" before a cloud bill does.
+name: reef-technologies
+
+services:
+  # ── Migrations ───────────────────────────────────────────────────────────
+  # A one-shot job the API waits on, not a step inside the API's own startup.
+  # Running migrations from every replica means N replicas racing on the same
+  # DDL during a rolling deploy; running them once, first, is the whole reason
+  # this is a separate service.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      # The migrator target keeps the development toolchain the runtime strips.
+      target: migrator
+    environment:
+      # The migration runs as the OWNER. The app does not — see init-db.sql:
+      # row-level security is bypassed by table owners, so an API running as
+      # this user would silently have no tenant isolation at all.
+      DATABASE_URL: postgres://reef_technologies:reef_technologies@postgres:5432/reef_technologies
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Seed ─────────────────────────────────────────────────────────────────
+  # Development data, and the thing that makes this stack usable at all: a
+  # migrated database has no tenant row, so every request is rejected with 400
+  # by the tenancy middleware before it reaches a controller. The platform is
+  # multi-tenant from the first line of SQL, which means "provision a tenant" is
+  # a deployment step, not an afterthought.
+  #
+  # This particular seed is NOT that step. It refuses to run when NODE_ENV is
+  # production, on purpose, and it creates an admin with a known password. A
+  # real deployment needs a provisioning path of its own — creating the tenant
+  # and its first administrator from supplied values — which does not exist yet
+  # and is the honest gap in this deployment story.
+  seed:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: migrator
+    working_dir: /app/apps/api
+    command: ["/app/apps/api/node_modules/.bin/tsx", "src/scripts/seed.ts"]
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://reef_technologies:reef_technologies@postgres:5432/reef_technologies
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-this-dev-password}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      # `staging`, not `production`, and the distinction is the point.
+      #
+      # Set to production, the config refuses to start here — and it is right
+      # to: this stack allows a localhost CORS origin, builds recovery links
+      # pointing at localhost, talks to Postgres without TLS, and uses the mail
+      # transport that delivers nothing. Every one of those is a real
+      # production defect, so the schema rejects the combination rather than
+      # letting a convenient local default reach a server.
+      #
+      # A real deployment sets NODE_ENV=production and must satisfy all four.
+      NODE_ENV: staging
+      PORT: 4000
+      API_PREFIX: api/v1
+      DATABASE_URL: postgres://reef_technologies_app:reef_technologies_app@postgres:5432/reef_technologies
+      REDIS_URL: redis://redis:6379
+      AI_WORKER_BASE_URL: http://ai-worker:8000
+      CORS_ORIGINS: http://localhost:3000
+      APP_PUBLIC_URL: http://localhost:3000
+      EVENT_BUS_DRIVER: redis
+      # Supply the real one through your orchestrator's secret store. Required
+      # here too: the compose file refuses to start rather than inventing a
+      # default that could be copied somewhere it matters.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (32+ chars) before starting this stack}
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-log}
+      TENANT_STRICT: "true"
+      DATABASE_SSL: "false"
+    ports: ['4000:4000']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  ai-worker:
+    build:
+      context: ../..
+      dockerfile: apps/ai-worker/Dockerfile
+    environment:
+      # `development`, and deliberately: the worker's config makes LLM
+      # credentials mandatory outside development, which is the correct rule —
+      # the keyless providers are a development affordance, not a way to run a
+      # staging environment without paying for models. Supply both keys and
+      # this becomes ENVIRONMENT=staging with nothing else changed.
+      ENVIRONMENT: development
+      PORT: 8000
+      DATABASE_URL: postgresql://reef_technologies_app:reef_technologies_app@postgres:5432/reef_technologies
+      REDIS_URL: redis://redis:6379
+      EVENT_STREAM_PREFIX: reef_technologies:events
+      # A different consumer group from the API's, so both receive every event
+      # rather than competing for each one.
+      EVENT_CONSUMER_GROUP: reef-technologies-ai-worker
+      # Absent: the worker embeds with the hashing vectoriser and answers
+      # extractively. Present: real models, no other change.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Build-time, not runtime: Next.js inlines NEXT_PUBLIC_* into the client
+        # bundle, so this value is baked into the image. Changing it is a
+        # rebuild, and an image built here cannot be promoted elsewhere as-is.
+        #
+        # The SERVICE name, not the published port. Every consumer of this value
+        # runs inside the Next server — the authenticating proxy, the silent
+        # refresh, `getSession` — and the browser reaches the API only through
+        # that same-origin proxy. Set to `localhost:4000` the web container
+        # calls itself and every proxied request answers 502.
+        NEXT_PUBLIC_API_BASE_URL: http://api:4000/api/v1
+        NEXT_PUBLIC_DEFAULT_TENANT: mauritius
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports: ['3000:3000']
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

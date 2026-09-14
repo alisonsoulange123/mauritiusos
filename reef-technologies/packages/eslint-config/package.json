@@ -1,0 +1,13 @@
+{
+  "name": "@reef-technologies/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "exports": { ".": "./index.mjs", "./boundaries": "./boundaries.mjs" },
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint-plugin-import": "^2.31.0"
+  }
+}

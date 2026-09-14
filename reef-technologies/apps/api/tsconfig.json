@@ -1,0 +1,10 @@
+{
+  "extends": "@reef-technologies/tsconfig/nest.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": { "@core/*": ["src/core/*"], "@modules/*": ["src/modules/*"] }
+  },
+  "include": ["src/**/*"]
+}

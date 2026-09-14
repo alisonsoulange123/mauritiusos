@@ -1,5 +1,0 @@
-{
-  "extends": "@anomalia/tsconfig/library.json",
-  "compilerOptions": { "jsx": "react-jsx", "lib": ["DOM", "ES2022"], "composite": false },
-  "include": ["src/**/*", "tailwind-preset.ts"]
-}
