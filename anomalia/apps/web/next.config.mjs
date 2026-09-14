@@ -1,6 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  /*
+   * Traces the server build down to the files it actually imports and emits a
+   * self-contained bundle with its own minimal `node_modules`.
+   *
+   * Without it a runtime image has to carry the whole pnpm workspace to serve a
+   * handful of routes. With it the runner stage copies one directory and never
+   * installs anything — which also means the production image contains no
+   * package manager, no lockfile and no build toolchain to be exploited.
+   */
+  output: 'standalone',
   // Workspace packages ship TypeScript source, not build output — one less
   // build step, and jumping to a definition lands in the real file.
   transpilePackages: ['@anomalia/ui', '@anomalia/contracts', '@anomalia/config'],

@@ -45,6 +45,38 @@ export const coreEnvSchema = z.object({
    */
   AUTH_REFRESH_GRACE_SECONDS: durationSecondsFromEnv.default(5),
 
+  /**
+   * How long a password-reset link stays usable.
+   *
+   * Short on purpose. The link is a bearer credential that arrives in a
+   * mailbox — a channel the platform does not control and cannot revoke — so
+   * its value to anyone who later reads that mailbox decays on a timer.
+   */
+  AUTH_PASSWORD_RESET_TTL_SECONDS: durationSecondsFromEnv.default(60 * 60),
+  /**
+   * How long an email-verification link stays usable.
+   *
+   * Longer than a reset link because it grants nothing on its own: it proves
+   * an address, and the account already exists either way. The cost of an
+   * expired one is a resend, so it is sized for someone who reads their mail
+   * the next morning.
+   */
+  AUTH_EMAIL_VERIFY_TTL_SECONDS: durationSecondsFromEnv.default(60 * 60 * 24),
+
+  // ── Outbound mail ───────────────────────────────────────────────────────
+  /**
+   * Where recovery links point. Not derived from the request, deliberately:
+   * an attacker who controls the Host header would otherwise control where a
+   * password-reset link sends the victim.
+   */
+  APP_PUBLIC_URL: z.string().url().default('http://localhost:3000'),
+  /** `log` prints the message and delivers nothing; `http` posts it to a provider. */
+  MAIL_TRANSPORT: z.enum(['log', 'http']).default('log'),
+  MAIL_FROM: z.string().default('ANOMALIA <no-reply@anomalia.local>'),
+  /** Provider endpoint for the `http` transport (e.g. a transactional mail API). */
+  MAIL_HTTP_ENDPOINT: z.string().url().optional(),
+  MAIL_HTTP_TOKEN: z.string().optional(),
+
   // ── Multi-tenancy (§16–18) ──────────────────────────────────────────────
   /** Fallback tenant when a request carries no resolvable tenant header. */
   DEFAULT_TENANT_SLUG: z.string().default('mauritius'),
@@ -81,6 +113,17 @@ export type CoreEnv = z.infer<typeof coreEnvSchema>;
  */
 export const withProductionInvariants = <S extends z.ZodType<CoreEnv, z.ZodTypeDef, unknown>>(schema: S) =>
   schema.superRefine((env, ctx) => {
+    // Applies everywhere, not just production: a transport configured to post
+    // somewhere it cannot authenticate fails on the first password reset,
+    // which is the worst possible moment to discover it.
+    if (env.MAIL_TRANSPORT === 'http' && !(env.MAIL_HTTP_ENDPOINT && env.MAIL_HTTP_TOKEN)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MAIL_HTTP_ENDPOINT'],
+        message: 'the "http" mail transport needs MAIL_HTTP_ENDPOINT and MAIL_HTTP_TOKEN',
+      });
+    }
+
     if (env.NODE_ENV !== 'production') return;
 
     if (env.EVENT_BUS_DRIVER === 'memory') {
@@ -109,6 +152,20 @@ export const withProductionInvariants = <S extends z.ZodType<CoreEnv, z.ZodTypeD
         code: z.ZodIssueCode.custom,
         path: ['TENANT_STRICT'],
         message: 'tenant isolation cannot be relaxed in production',
+      });
+    }
+    if (env.MAIL_TRANSPORT === 'log') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MAIL_TRANSPORT'],
+        message: 'the "log" transport delivers nothing; password reset would silently never arrive',
+      });
+    }
+    if (env.APP_PUBLIC_URL.includes('localhost')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['APP_PUBLIC_URL'],
+        message: 'recovery links are built from this; localhost would send every user nowhere',
       });
     }
   });

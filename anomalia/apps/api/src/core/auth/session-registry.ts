@@ -209,6 +209,19 @@ export class SessionRegistry {
   }
 
   /**
+   * How many lineages the account currently holds — roughly, how many devices
+   * are signed in.
+   *
+   * Read-only, and approximate by design: a family whose key has expired may
+   * still be counted until the set is next written. Good enough for a support
+   * screen answering "is anyone still logged in as them?", and not something
+   * any authorization decision reads.
+   */
+  async activeSessionCount(tenantId: string, userId: string): Promise<number> {
+    return this.redis.scard(userKey(tenantId, userId)).catch(() => 0);
+  }
+
+  /**
    * Whether a family has been revoked — consulted by the request guard.
    *
    * Access tokens are stateless and live for 15 minutes, so without this check

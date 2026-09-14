@@ -13,9 +13,9 @@ export const dynamic = 'force-dynamic';
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; created?: string }>;
+  searchParams: Promise<{ next?: string; created?: string; reset?: string }>;
 }) {
-  const { next, created } = await searchParams;
+  const { next, created, reset } = await searchParams;
 
   // Already signed in: send them on rather than showing a form that would
   // replace a working session with an identical one.
@@ -33,10 +33,24 @@ export default async function LoginPage({
           </p>
         ) : null}
 
+        {/*
+          Arriving from a completed reset. Saying the other devices were signed
+          out matters: it is the visible evidence that the reset did something
+          to an attacker's session, and it explains a sign-out the user did not
+          perform on their other machine.
+        */}
+        {reset ? (
+          <p className="mt-4 text-body text-muted text-pretty">
+            Your password has been changed and every other device was signed out. Sign in with
+            your new password.
+          </p>
+        ) : null}
+
         <AuthForm
           action={signIn}
           submitLabel="Sign in"
           {...(next ? { next } : {})}
+          aside={{ label: 'Forgot your password?', href: '/forgot-password' }}
           footer={{ prompt: 'No account yet?', label: 'Create one', href: '/register' }}
         />
       </div>

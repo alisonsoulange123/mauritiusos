@@ -30,6 +30,14 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 strict = true
 python_version = "3.12"
 
+# asyncpg ships neither stubs nor a py.typed marker, so strict mode refuses to
+# import it at all. Narrowed to that one package: everything else in the tree
+# stays fully checked, and the untyped surface is the handful of pool calls in
+# `core/db.py` rather than the whole worker.
+[[tool.mypy.overrides]]
+module = ["asyncpg.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

@@ -2,6 +2,7 @@ import { fetchCapabilities } from './capabilities';
 import { navigationFor, resolveFeatures, type ResolvedFeature } from '@/features/resolve-features';
 import { clientEnv } from '@/shared/config/client-env';
 import { getSession, type Session } from '@/shared/auth/session';
+import { hasBackOffice } from '@/shared/admin/sections';
 
 export interface SiteChrome {
   links: Array<{ key: string; title: string; href: string }>;
@@ -31,7 +32,18 @@ export interface SiteChrome {
   actions: Array<{ key: string; label: string; href: string }>;
   degraded: boolean;
   /** Identity for the header's account area. Never carries a token. */
-  viewer: { email: string } | null;
+  viewer: {
+    email: string;
+    /**
+     * Whether to offer the Back Office at all.
+     *
+     * Derived here from the real session rather than in the header, because
+     * the header is a client component: a role list passed into one is visible
+     * to the viewer. A boolean says only what the UI needs to render, and the
+     * layout and the API both enforce the actual rule.
+     */
+    backOffice: boolean;
+  } | null;
 }
 
 /**
@@ -122,6 +134,11 @@ export function deriveChrome(
       })),
 
     degraded,
-    viewer: session ? { email: session.email } : null,
+    viewer: session
+      ? {
+          email: session.email,
+          backOffice: hasBackOffice(session.roles),
+        }
+      : null,
   };
 }

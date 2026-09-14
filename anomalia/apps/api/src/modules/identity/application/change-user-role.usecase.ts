@@ -64,6 +64,7 @@ export class ChangeUserRoleUseCase {
       targetId: target.id,
       from: target.role,
       to: input.role,
+      targetEmailVerified: target.emailVerifiedAt !== null,
     });
 
     if (refusal) await this.refuse(refusal, input, target.role);
@@ -144,4 +145,8 @@ const REFUSAL_MESSAGES: Record<RoleChangeRefusal, string> = {
   'self-change': 'You cannot change your own role.',
   'not-permitted': 'You are not permitted to change roles.',
   'requires-admin': 'Only an administrator can assign or remove that role.',
+  // Names the remedy, because this one is fixable by the target in a minute
+  // and the person reading it is usually an advisor mid-conversation.
+  'unverified-email':
+    'That account has not confirmed its email address yet, so it cannot be given this role.',
 };

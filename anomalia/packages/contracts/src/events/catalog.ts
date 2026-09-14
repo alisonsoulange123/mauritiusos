@@ -32,6 +32,18 @@ export const eventCatalog = {
     to: z.string(),
     changedBy: z.string().uuid(),
   }),
+  'identity.email.verified': z.object({
+    userId: z.string().uuid(),
+    email: z.string().email(),
+  }),
+  /**
+   * Carries no token and no password, obviously — consumers that care are
+   * reacting to the session teardown, not to the credential.
+   */
+  'identity.password.reset': z.object({
+    userId: z.string().uuid(),
+    sessionsRevoked: z.number().int().min(0),
+  }),
 
   // ── Assessment (the conversion funnel) ─────────────────────────────────
   'assessment.started': z.object({

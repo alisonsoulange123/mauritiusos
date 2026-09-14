@@ -1,4 +1,4 @@
-import { date, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { tenantIndexes, tenantScoped } from '@anomalia/db';
 
 /** Technical identity. Credentials live here and nowhere else. */
@@ -15,6 +15,14 @@ export const users = pgTable(
       .notNull()
       .default('lead'),
     status: text('status', { enum: ['pending', 'active', 'suspended'] }).notNull().default('pending'),
+    /**
+     * When the owner proved they can read this address — null until they do.
+     *
+     * A timestamp rather than a boolean because "verified" is an event with a
+     * date, and support will eventually need to know whether it happened
+     * before or after some other thing.
+     */
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     locale: text('locale').notNull().default('en'),
   },
   (table) => [

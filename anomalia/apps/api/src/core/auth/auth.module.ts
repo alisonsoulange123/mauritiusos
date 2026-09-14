@@ -5,6 +5,7 @@ import { ConfigService } from '../config/config.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { TokenService } from './token.service.js';
 import { SessionRegistry } from './session-registry.js';
+import { RecoveryTokenService } from './recovery-tokens.js';
 
 /**
  * Core owns token VERIFICATION; the identity module owns user records and
@@ -22,7 +23,12 @@ import { SessionRegistry } from './session-registry.js';
       }),
     }),
   ],
-  providers: [TokenService, SessionRegistry, { provide: APP_GUARD, useClass: JwtAuthGuard }],
-  exports: [TokenService, SessionRegistry, JwtModule],
+  providers: [
+    TokenService,
+    SessionRegistry,
+    RecoveryTokenService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
+  exports: [TokenService, SessionRegistry, RecoveryTokenService, JwtModule],
 })
 export class AuthModule {}

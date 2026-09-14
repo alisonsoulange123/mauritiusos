@@ -23,7 +23,7 @@ export interface SiteHeaderProps {
   links: HeaderLink[];
   cta?: { label: string; href: string };
   /** Resolved on the server. `null` means anonymous, never "unknown yet". */
-  viewer?: { email: string } | null;
+  viewer?: { email: string; backOffice: boolean } | null;
 }
 
 /**
@@ -87,29 +87,7 @@ export function SiteHeader({ links, cta, viewer }: SiteHeaderProps) {
             phone because the hero repeats it; the way back into an account
             has no second copy anywhere on the page.
           */}
-          {viewer ? (
-            <form action={signOut} className="flex items-center gap-3">
-              <span
-                className="hidden max-w-[16ch] truncate text-caption text-muted lg:inline"
-                title={viewer.email}
-              >
-                {viewer.email}
-              </span>
-              <button
-                type="submit"
-                className="rounded-full px-3 py-1.5 text-caption text-muted transition-colors duration-200 ease-editorial hover:text-ink"
-              >
-                Sign out
-              </button>
-            </form>
-          ) : (
-            <Link
-              href="/login"
-              className="rounded-full px-3 py-1.5 text-caption text-muted transition-colors duration-200 ease-editorial hover:text-ink"
-            >
-              Sign in
-            </Link>
-          )}
+          <AccountArea viewer={viewer} />
 
           {cta ? (
             <Link
@@ -181,5 +159,58 @@ export function SiteHeader({ links, cta, viewer }: SiteHeaderProps) {
         </Container>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The account corner of the header: sign in, or who you are and the way out.
+ *
+ * Extracted when the Back Office link pushed `SiteHeader` past the project's
+ * complexity ceiling. The split is the right one anyway — the header's job is
+ * layout and scroll state; who is signed in is a separate question.
+ */
+function AccountArea({ viewer }: { viewer?: { email: string; backOffice: boolean } | null }) {
+  if (!viewer) {
+    return (
+      <Link
+        href="/login"
+        className="rounded-full px-3 py-1.5 text-caption text-muted transition-colors duration-200 ease-editorial hover:text-ink"
+      >
+        Sign in
+      </Link>
+    );
+  }
+
+  return (
+    <>
+      {/*
+        Advisors and admins only, and only ever a link. The gate is the layout
+        it points at plus `@Roles` on every endpoint behind it — this just
+        avoids offering a door that would slam in everyone else's face.
+      */}
+      {viewer.backOffice ? (
+        <Link
+          href="/admin"
+          className="hidden rounded-full px-3 py-1.5 text-caption text-muted transition-colors duration-200 ease-editorial hover:text-ink sm:inline-block"
+        >
+          Back office
+        </Link>
+      ) : null}
+
+      <form action={signOut} className="flex items-center gap-3">
+        <span
+          className="hidden max-w-[16ch] truncate text-caption text-muted lg:inline"
+          title={viewer.email}
+        >
+          {viewer.email}
+        </span>
+        <button
+          type="submit"
+          className="rounded-full px-3 py-1.5 text-caption text-muted transition-colors duration-200 ease-editorial hover:text-ink"
+        >
+          Sign out
+        </button>
+      </form>
+    </>
   );
 }

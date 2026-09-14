@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  /*
+   * Tests are type-checked but never emitted.
+   *
+   * `tsconfig.json` has no `exclude`, so `nest build` was compiling every
+   * `__tests__` directory into `dist/` — and the Docker image copies `dist`
+   * wholesale, which meant the production artifact shipped the test suite,
+   * its fixtures, and the integration harness that knows how to boot the app
+   * with a chosen configuration. None of that belongs on a server.
+   *
+   * `pnpm typecheck` still runs against `tsconfig.json` and still checks them,
+   * which is the point of splitting rather than adding an exclude.
+   */
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts", "dist", "node_modules"]
+}

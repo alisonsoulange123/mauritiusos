@@ -30,10 +30,26 @@ export class TenantResolver {
 
   constructor(@Inject(DATABASE) private readonly database: DatabaseRef) {}
 
-  /** `portal.mauritius.anomalia.io` -> `mauritius`; unknown shapes -> undefined. */
-  slugFromHost(hostname: string): string | undefined {
+  /**
+   * `portal.mauritius.anomalia.io` -> `mauritius`; unknown shapes -> undefined.
+   *
+   * IP literals are rejected before the dots are counted, and that is not a
+   * nicety: `127.0.0.1` splits into four labels, so the old implementation read
+   * the third from last and resolved the tenant slug `0`. Every request
+   * reaching the API by address rather than by name — a container talking to a
+   * sibling, a load balancer's health probe, the app's own healthcheck — looked
+   * up a tenant that does not exist and was refused with a 400.
+   *
+   * It survived local development because `localhost` has one label and falls
+   * through to the default, and appeared the moment the API ran in a container.
+   */
+  slugFromHost(host: string): string | undefined {
+    const hostname = stripPort(host);
+    if (!hostname || isIpLiteral(hostname)) return undefined;
+
     const parts = hostname.split('.');
     if (parts.length < 3) return undefined;
+
     const candidate = parts.at(-3);
     return candidate && candidate !== 'www' ? candidate : undefined;
   }
@@ -79,4 +95,27 @@ export class TenantResolver {
     if (slug) this.cache.delete(slug);
     else this.cache.clear();
   }
+}
+
+/**
+ * Express's `hostname` normally strips the port, but this is called with
+ * whatever the caller has — and a bare `Host` header carries one.
+ */
+function stripPort(host: string): string {
+  const trimmed = host.trim().toLowerCase();
+
+  // A bracketed IPv6 literal: `[::1]:4000`.
+  if (trimmed.startsWith('[')) return trimmed.slice(1, trimmed.indexOf(']'));
+
+  const colon = trimmed.lastIndexOf(':');
+  // A lone colon is a port separator; several mean an unbracketed IPv6 address,
+  // which has no port to strip.
+  const hasSinglePort = colon > 0 && trimmed.indexOf(':') === colon;
+  return hasSinglePort ? trimmed.slice(0, colon) : trimmed;
+}
+
+/** Addresses are never tenant names, in either family. */
+function isIpLiteral(hostname: string): boolean {
+  if (hostname.includes(':')) return true; // IPv6, bracket-stripped by now
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
 }

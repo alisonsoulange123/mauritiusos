@@ -46,6 +46,10 @@ jobs:
       JWT_SECRET: ci-secret-value-that-is-definitely-long-enough-32
       EVENT_BUS_DRIVER: memory
       NODE_ENV: test
+      # The integration harness connects with these, so it can be pointed at a
+      # throwaway database without disturbing DATABASE_URL for anything else.
+      TEST_DATABASE_URL: postgres://anomalia:anomalia@localhost:5432/anomalia_test
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -61,6 +65,30 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+      # ── Integration ────────────────────────────────────────────────────
+      # A service container starts from the bare image and never runs
+      # `infrastructure/docker/init-db.sql`, so the extensions the schema
+      # depends on have to be created here. Without `vector` the migration
+      # fails outright; without `unaccent` the knowledge search does, and only
+      # for the French half of the corpus.
+      - name: Create database extensions
+        run: |
+          PGPASSWORD=anomalia psql -h localhost -U anomalia -d anomalia_test \
+            -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS unaccent;'
+
+      - name: Migrate the test database
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://anomalia:anomalia@localhost:5432/anomalia_test
+
+      # These boot the real application against those services and drive it
+      # over HTTP. They skip when the infrastructure is absent, which is why
+      # the two steps above matter: a silent skip here would look like a pass.
+      - run: pnpm test:integration
 
   python:
     needs: boundaries

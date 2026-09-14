@@ -1,12 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import * as argon2 from 'argon2';
 import { DomainError, EVENT_BUS, type EventBus } from '@anomalia/contracts';
 import { and, eq } from 'drizzle-orm';
 import { DATABASE, type DatabaseRef } from '../../../core/database/database.tokens.js';
 import { TenantContext } from '../../../core/tenancy/tenant-context.js';
-import { ConfigService } from '../../../core/config/config.service.js';
 import { users, userProfiles } from '../infrastructure/identity.schema.js';
+import { PasswordHasher } from '../infrastructure/password-hasher.js';
+import { RecoveryMailer } from '../infrastructure/recovery-mailer.js';
 
 export interface RegisterUserInput {
   email: string;
@@ -22,24 +22,13 @@ export class RegisterUserUseCase {
     @Inject(DATABASE) private readonly database: DatabaseRef,
     @Inject(EVENT_BUS) private readonly events: EventBus,
     private readonly tenantContext: TenantContext,
-    private readonly config: ConfigService,
+    private readonly passwords: PasswordHasher,
+    private readonly recovery: RecoveryMailer,
   ) {}
 
   async execute(input: RegisterUserInput): Promise<{ userId: string }> {
     const tenantId = this.tenantContext.requireTenantId();
     const email = input.email.trim().toLowerCase();
-    const { IDENTITY_PASSWORD_MIN_LENGTH, IDENTITY_ARGON_MEMORY_KIB } = this.config.module<{
-      IDENTITY_PASSWORD_MIN_LENGTH: number;
-      IDENTITY_ARGON_MEMORY_KIB: number;
-    }>();
-
-    if (input.password.length < IDENTITY_PASSWORD_MIN_LENGTH) {
-      throw new DomainError(
-        'IDENTITY_PASSWORD_TOO_SHORT',
-        `Password must be at least ${IDENTITY_PASSWORD_MIN_LENGTH} characters.`,
-        422,
-      );
-    }
 
     const existing = await this.database.db
       .select({ id: users.id })
@@ -54,12 +43,7 @@ export class RegisterUserUseCase {
     }
 
     const userId = randomUUID();
-    const passwordHash = await argon2.hash(input.password, {
-      type: argon2.argon2id,
-      memoryCost: IDENTITY_ARGON_MEMORY_KIB,
-      timeCost: 3,
-      parallelism: 4,
-    });
+    const passwordHash = await this.passwords.hash(input.password);
 
     // User and profile in one transaction: a user without a profile would
     // break every downstream module's assumptions.
@@ -71,6 +55,23 @@ export class RegisterUserUseCase {
         firstName: input.firstName ?? null,
         journeyStage: 'lead',
       });
+    });
+
+    /*
+     * The confirmation link goes out here, not from an event handler.
+     *
+     * It is the one message whose absence the user notices immediately, and
+     * routing it through the bus would make "did the welcome mail send?"
+     * depend on consumer health. Sending it inline cannot fail the
+     * registration either: the mailer swallows and logs, so an account is
+     * still created when the provider is down, and the user can ask for
+     * another link from inside the portal.
+     */
+    await this.recovery.sendEmailVerification({
+      userId,
+      tenantId,
+      email,
+      locale: input.locale,
     });
 
     await this.events.publish('identity.user.registered', {

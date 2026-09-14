@@ -172,10 +172,14 @@ async function seedAdmin(tenant: string): Promise<void> {
     parallelism: 4,
   });
 
+  // Verified at creation. Nobody is going to read mail at admin@anomalia.local,
+  // and an admin that cannot be promoted past `lead` by the role policy would
+  // make the bootstrap useless the moment that rule applied to them too.
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO identity_users (id, tenant_id, email, password_hash, role, status, locale)
-     VALUES ($1, $2, $3, $4, 'admin', 'active', 'en')
-     ON CONFLICT (tenant_id, email) DO UPDATE SET role = 'admin', status = 'active'
+    `INSERT INTO identity_users (id, tenant_id, email, password_hash, role, status, locale, email_verified_at)
+     VALUES ($1, $2, $3, $4, 'admin', 'active', 'en', now())
+     ON CONFLICT (tenant_id, email) DO UPDATE
+       SET role = 'admin', status = 'active', email_verified_at = COALESCE(identity_users.email_verified_at, now())
      RETURNING id`,
     [randomUUID(), tenant, email, passwordHash],
   );

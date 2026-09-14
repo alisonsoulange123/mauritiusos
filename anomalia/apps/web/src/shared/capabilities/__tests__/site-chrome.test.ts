@@ -26,7 +26,14 @@ const anonymous = (enabled: string[]) =>
 
 /** The same surfaces, resolved for a signed-in viewer holding `roles`. */
 const signedIn = (enabled: string[], roles: Role[]) => {
-  const session: Session = { userId: 'u1', email: 'jean@example.com', roles };
+  // Verified: site chrome is decided by role, not by the state of the
+  // mailbox, and these assertions should keep saying so.
+  const session: Session = {
+    userId: 'u1',
+    email: 'jean@example.com',
+    roles,
+    emailVerified: true,
+  };
   return deriveChrome(
     resolveFeatures({ capabilities: capabilities(enabled), roles, authenticated: true }),
     enabled.length === 0,
@@ -138,10 +145,32 @@ describe('deriveChrome for a signed-in viewer', () => {
   it('exposes the viewer identity, and only the identity', () => {
     const chrome = signedIn(ALL, ['client']);
 
-    expect(chrome.viewer).toEqual({ email: 'jean@example.com' });
+    // `backOffice` is a decision, not a credential: it says what to render and
+    // reveals nothing the viewer does not already know about themselves.
+    expect(chrome.viewer).toEqual({ email: 'jean@example.com', backOffice: false });
     // A token reaching this object would be serialised into the HTML by the
     // header, which is the leak the httpOnly cookie exists to prevent.
     expect(JSON.stringify(chrome)).not.toContain('token');
+  });
+
+  it('offers the back office to everyone who has a section in it', () => {
+    // Advisors get the account directory, knowledge managers the knowledge
+    // base, admins both plus the audit trail. The link is offered whenever
+    // there is at least one section to land on.
+    for (const role of ['advisor', 'knowledge_manager', 'admin'] as Role[]) {
+      expect(signedIn(ALL, [role]).viewer?.backOffice).toBe(true);
+    }
+
+    // Everyone else must not even be offered the door. The layout and every
+    // endpoint behind it refuse them anyway, but a link that always fails is
+    // a support ticket.
+    for (const role of ['visitor', 'lead', 'client', 'partner'] as Role[]) {
+      expect(signedIn(ALL, [role]).viewer?.backOffice).toBe(false);
+    }
+  });
+
+  it('never emits a back office link for an anonymous visitor', () => {
+    expect(anonymous(ALL).viewer).toBeNull();
   });
 });
 

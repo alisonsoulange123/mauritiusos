@@ -14,7 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "openapi:export": "tsx src/scripts/export-openapi.ts",
-    "seed": "tsx src/scripts/seed.ts"
+    "seed": "tsx src/scripts/seed.ts",
+    "test:integration": "nest build && vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@anomalia/config": "workspace:*",

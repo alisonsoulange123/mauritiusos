@@ -34,6 +34,65 @@ describe('loadServerEnv', () => {
     ).toThrow(/in-memory bus/);
   });
 
+  it('refuses a mail transport that delivers nothing, in production', () => {
+    /*
+     * The `log` transport is how the whole recovery flow is developed without
+     * a mail account. Shipping with it would mean password reset silently
+     * never arrives — a failure with no error anywhere, discovered only by the
+     * user who cannot get back in.
+     */
+    const production = {
+      ...valid,
+      NODE_ENV: 'production',
+      EVENT_BUS_DRIVER: 'redis',
+      DATABASE_SSL: 'true',
+      TENANT_STRICT: 'true',
+      CORS_ORIGINS: 'https://anomalia.mu',
+      APP_PUBLIC_URL: 'https://anomalia.mu',
+    };
+
+    expect(() => loadServerEnv({ source: { ...production, MAIL_TRANSPORT: 'log' } })).toThrow(
+      /delivers nothing/,
+    );
+  });
+
+  it('refuses recovery links pointing at localhost in production', () => {
+    expect(() =>
+      loadServerEnv({
+        source: {
+          ...valid,
+          NODE_ENV: 'production',
+          EVENT_BUS_DRIVER: 'redis',
+          DATABASE_SSL: 'true',
+          CORS_ORIGINS: 'https://anomalia.mu',
+          MAIL_TRANSPORT: 'http',
+          MAIL_HTTP_ENDPOINT: 'https://mail.example/send',
+          MAIL_HTTP_TOKEN: 'tok',
+          APP_PUBLIC_URL: 'http://localhost:3000',
+        },
+      }),
+    ).toThrow(/localhost would send every user nowhere/);
+  });
+
+  it('refuses an http mail transport with nowhere to post, in every environment', () => {
+    // Not a production-only check: a transport that cannot authenticate fails
+    // on the first password reset, which is the worst time to find out.
+    expect(() =>
+      loadServerEnv({ source: { ...valid, MAIL_TRANSPORT: 'http' } }),
+    ).toThrow(/MAIL_HTTP_ENDPOINT and MAIL_HTTP_TOKEN/);
+
+    expect(() =>
+      loadServerEnv({
+        source: {
+          ...valid,
+          MAIL_TRANSPORT: 'http',
+          MAIL_HTTP_ENDPOINT: 'https://mail.example/send',
+          MAIL_HTTP_TOKEN: 'tok',
+        },
+      }),
+    ).not.toThrow();
+  });
+
   it('merges module-contributed schemas', () => {
     const { modules } = loadServerEnv<{ SAMPLE_FEATURE_PAGE_SIZE: number }>({
       source: { ...valid, SAMPLE_FEATURE_PAGE_SIZE: '50' },

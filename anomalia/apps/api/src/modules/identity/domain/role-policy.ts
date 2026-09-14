@@ -34,7 +34,9 @@ export type RoleChangeRefusal =
   /** The actor holds no role that permits changing anyone's. */
   | 'not-permitted'
   /** An advisor reaching outside the commercial ladder. */
-  | 'requires-admin';
+  | 'requires-admin'
+  /** The target has not proved they can read the address on the account. */
+  | 'unverified-email';
 
 export interface RoleChangeRequest {
   actorId: string;
@@ -43,7 +45,21 @@ export interface RoleChangeRequest {
   /** The target's current role — an advisor may not touch a privileged one. */
   from: Role;
   to: Role;
+  /** Whether the target has confirmed the address on their account. */
+  targetEmailVerified: boolean;
 }
+
+/**
+ * Roles that may be held without proving the address on the account.
+ *
+ * Registration issues `lead` to anyone who types an email, so these two are
+ * what an unproven identity is worth: the ability to browse and be marketed
+ * to. Everything above them — the concierge, advisory authority, other
+ * people's records — is granted to a person, and the only evidence the
+ * platform has that a person is behind an address is that they read a message
+ * sent to it.
+ */
+const UNVERIFIED_CEILING: readonly Role[] = ['visitor', 'lead'];
 
 /**
  * Returns the reason to refuse, or `null` when the change is permitted.
@@ -62,6 +78,27 @@ export function refuseRoleChange(request: RoleChangeRequest): RoleChangeRefusal 
    */
   if (request.actorId === request.targetId) return 'self-change';
 
+  const unauthorized = refuseOnAuthority(request);
+  if (unauthorized) return unauthorized;
+
+  /*
+   * Checked last, deliberately.
+   *
+   * This rule is about the TARGET, so no amount of privilege satisfies it — an
+   * admin gets the same refusal an advisor does, rather than succeeding and
+   * leaving the hole for someone else to find. But it runs only after the
+   * actor has been shown to have standing, because otherwise the refusal
+   * itself would report on an account the caller has no business reading.
+   */
+  if (!request.targetEmailVerified && !UNVERIFIED_CEILING.includes(request.to)) {
+    return 'unverified-email';
+  }
+
+  return null;
+}
+
+/** Whether the actor may make this change at all, ignoring the target's state. */
+function refuseOnAuthority(request: RoleChangeRequest): RoleChangeRefusal | null {
   if (request.actorRoles.includes('admin')) return null;
 
   if (!request.actorRoles.includes('advisor')) return 'not-permitted';

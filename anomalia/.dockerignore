@@ -1,0 +1,36 @@
+# Everything the build does not need, and several things it must not have.
+#
+# The security half matters as much as the speed half: without `.env` here, a
+# careless `COPY . .` would bake real secrets into an image layer, where they
+# survive deletion and travel with every push of that tag.
+
+node_modules
+**/node_modules
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+*.pyc
+
+# Build output — rebuilt inside the image, and stale copies would be shipped.
+dist
+**/dist
+.next
+**/.next
+.turbo
+**/.turbo
+out
+**/out
+
+# Secrets. `.env.example` is deliberately NOT excluded: it is documentation.
+.env
+**/.env
+.env.*
+!**/.env.example
+
+.git
+.github
+**/*.log
+**/coverage
+docs
+MauritiusOS

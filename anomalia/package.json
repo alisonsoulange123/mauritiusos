@@ -18,7 +18,8 @@
     "db:migrate": "pnpm --filter @anomalia/api db:migrate",
     "infra:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
     "infra:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
-    "verify": "pnpm boundaries && pnpm typecheck && pnpm lint && pnpm test"
+    "verify": "pnpm boundaries && pnpm typecheck && pnpm lint && pnpm test",
+    "test:integration": "turbo test:integration"
   },
   "devDependencies": {
     "@anomalia/eslint-config": "workspace:*",

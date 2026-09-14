@@ -15,6 +15,10 @@ from typing import Any
 
 import structlog
 
+from anomalia_ai.config import get_settings
+from anomalia_ai.core.db import Database
+from anomalia_ai.providers.factory import get_embedding_provider
+
 logger = structlog.get_logger(__name__)
 
 _RRF_K = 60  # standard RRF damping constant
@@ -23,18 +27,62 @@ _RRF_K = 60  # standard RRF damping constant
 class RetrievalAgent:
     key = "retrieval"
 
+    #: Injected at startup; see `EmbeddingAgent.database` for why.
+    database: Database | None = None
+
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         tenant_id = payload.get("tenant_id")
         if not tenant_id:
             # Fail closed. A retrieval with no tenant would search everything.
             raise ValueError("retrieval requires a tenant_id")
 
-        vector_hits: list[dict[str, Any]] = payload.get("vector_hits", [])  # type: ignore[assignment]
-        lexical_hits: list[dict[str, Any]] = payload.get("lexical_hits", [])  # type: ignore[assignment]
+        limit = int(payload.get("limit", 8))
+        lexical_hits: list[dict[str, Any]] = payload.get("lexical_hits", [])
+        vector_hits: list[dict[str, Any]] = payload.get("vector_hits", [])
+
+        # The caller may pass vector hits (tests do); otherwise they are found
+        # here. The Node API supplies the lexical half because it owns the
+        # knowledge contract, and this side owns the vectors — which is the
+        # division the whole hybrid design rests on.
+        query = str(payload.get("query", ""))
+        if not vector_hits and query and self.database is not None:
+            locale = str(payload.get("locale", "en"))
+            vector_hits = await self.search(str(tenant_id), query, locale, limit)
 
         fused = self.fuse(vector_hits, lexical_hits)
-        limit = int(payload.get("limit", 8))
         return {"hits": fused[:limit]}
+
+    async def search(
+        self,
+        tenant_id: str,
+        query: str,
+        locale: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Nearest published chunks to the question."""
+        if self.database is None:
+            return []
+
+        provider = get_embedding_provider()
+        [embedding] = await provider.embed([query])
+
+        rows = await self.database.search_by_vector(
+            tenant_id,
+            embedding,
+            locale,
+            limit,
+            get_settings().retrieval_min_similarity,
+        )
+        return [
+            {
+                "id": row["knowledge_id"],
+                "title": row["title"],
+                "excerpt": row["chunk_text"],
+                "confidence": float(row["confidence_score"]) / 100.0,
+                "similarity": float(row["similarity"]),
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def fuse(

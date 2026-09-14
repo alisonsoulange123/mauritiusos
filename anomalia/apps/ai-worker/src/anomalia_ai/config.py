@@ -41,8 +41,21 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 
-    # ── Guardrails (AI blueprint §16–17) ─────────────────────────────────
+    # ── Guardrails (AI blueprint 16-17) ──────────────────────────────────
     human_review_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: Cosine similarity below which a vector hit is not a hit at all.
+    #:
+    #: Nearest-neighbour search always returns a nearest neighbour. Without a
+    #: floor, a question about something the knowledge base has never covered
+    #: retrieves whatever is least unlike it and the answer quotes an unrelated
+    #: source with total confidence — which is the failure "never invent
+    #: immigration information" exists to prevent, arriving through retrieval
+    #: instead of through generation.
+    #:
+    #: The right value depends on the embedding model, so it is configuration
+    #: rather than a constant: lexical-overlap vectors and a real embedding
+    #: model do not put "unrelated" in the same place.
+    retrieval_min_similarity: float = Field(default=0.25, ge=0.0, le=1.0)
     max_context_items: int = Field(default=8, ge=1, le=30)
     request_timeout_seconds: int = 45
 

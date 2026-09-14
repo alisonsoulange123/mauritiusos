@@ -14,12 +14,17 @@ const actorSchema = z.object({
   id: z.string(),
   email: z.string(),
   roles: z.array(z.string()),
+  // Optional so a web build stays compatible with an API that predates the
+  // field; absent is read as unverified, which is the safe direction.
+  email_verified: z.boolean().optional(),
 });
 
 export interface Session {
   userId: string;
   email: string;
   roles: Role[];
+  /** Whether the account has confirmed its address. Gates promotion, not access. */
+  emailVerified: boolean;
 }
 
 /**
@@ -72,6 +77,7 @@ export const getSession = cache(async (): Promise<Session | null> => {
       roles: parsed.data.roles.filter((role): role is Role =>
         (ROLES as readonly string[]).includes(role),
       ),
+      emailVerified: parsed.data.email_verified ?? false,
     };
   } catch {
     // An unreachable API means "not signed in", never a crashed page. The

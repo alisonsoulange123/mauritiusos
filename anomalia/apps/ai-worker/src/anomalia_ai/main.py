@@ -10,23 +10,67 @@ from __future__ import annotations
 
 import os
 import socket
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
 from fastapi import FastAPI
 
+from anomalia_ai.agents.embedding_agent import EmbeddingAgent
 from anomalia_ai.agents.registry import AGENT_REGISTRY
+from anomalia_ai.agents.retrieval_agent import RetrievalAgent
 from anomalia_ai.api.routes import router
 from anomalia_ai.config import get_settings
-from anomalia_ai.core.events import EventBus
+from anomalia_ai.core.db import Database
+from anomalia_ai.core.events import EventBus, EventHandler
+from anomalia_ai.core.registry import Agent
+from anomalia_ai.providers.factory import get_chat_provider, get_embedding_provider
 
 logger = structlog.get_logger(__name__)
+
+
+def _handler_for(agent: Agent) -> EventHandler:
+    """Binds one agent to the bus.
+
+    A factory rather than a closure written inside the loop: a closure there
+    captures the loop variable by reference, so every subscription would end up
+    invoking whichever agent the loop happened to finish on. Binding through a
+    parameter makes each handler hold its own.
+    """
+
+    async def handler(envelope: dict[str, Any]) -> None:
+        payload = envelope.get("payload")
+        # Envelopes come off a stream written by another service. A malformed
+        # payload is a bad message, not a crash — the bus would otherwise treat
+        # the TypeError as a handler failure and redeliver it forever.
+        fields = dict(payload) if isinstance(payload, dict) else {}
+
+        # The tenant lives on the ENVELOPE, not in the payload, because it is
+        # true of the message rather than of the thing that happened. Every
+        # agent that touches the database needs it, so it is merged in here
+        # instead of each agent reaching for an envelope it was never given.
+        fields["tenantId"] = envelope.get("tenantId")
+        fields["traceId"] = envelope.get("traceId")
+
+        await agent.run(fields)
+
+    return handler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+
+    database = Database(settings.database_url)
+    await database.connect()
+
+    # Agents are constructed by the registry with no arguments, so the handle is
+    # attached to the classes. Set on the class rather than the instance because
+    # the registry builds instances lazily, and an agent first resolved by an
+    # inbound event would otherwise find a `None` where its database should be.
+    EmbeddingAgent.database = database
+    RetrievalAgent.database = database
 
     bus = EventBus(
         url=settings.redis_url,
@@ -39,20 +83,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # reacts to an event needs no change here.
     for definition in AGENT_REGISTRY.definitions:
         for event_name in definition.subscribes:
-            agent = AGENT_REGISTRY.get(definition.key)
-
-            async def handler(envelope: dict[str, object], _agent=agent) -> None:  # noqa: ANN001
-                await _agent.run(dict(envelope.get("payload", {})))  # type: ignore[arg-type]
-
-            bus.subscribe(event_name, handler)
+            bus.subscribe(event_name, _handler_for(AGENT_REGISTRY.get(definition.key)))
 
     await bus.start()
     app.state.event_bus = bus
-    logger.info("ai worker ready", agents=[d.key for d in AGENT_REGISTRY.definitions])
+    app.state.database = database
+
+    embeddings = get_embedding_provider()
+    chat_provider = get_chat_provider()
+    logger.info(
+        "ai worker ready",
+        agents=[d.key for d in AGENT_REGISTRY.definitions],
+        embeddings=embeddings.name,
+        chat=chat_provider.name,
+    )
 
     yield
 
     await bus.stop()
+    await database.close()
 
 
 app = FastAPI(

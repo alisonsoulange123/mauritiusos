@@ -22,5 +22,10 @@ export default defineModule({
     IDENTITY_ARGON_MEMORY_KIB: z.coerce.number().int().min(19456).default(65536),
   }),
   provides: [IDENTITY_CONTRACT],
-  publishes: ['identity.user.registered', 'identity.role.changed'],
+  publishes: [
+    'identity.user.registered',
+    'identity.role.changed',
+    'identity.email.verified',
+    'identity.password.reset',
+  ],
 });

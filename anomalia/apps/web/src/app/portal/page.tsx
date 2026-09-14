@@ -5,6 +5,7 @@ import { ArrowLink } from '@/components/ui/arrow-link';
 import { fetchCapabilities } from '@/shared/capabilities/capabilities';
 import { resolveFeatures } from '@/features/resolve-features';
 import { getSession } from '@/shared/auth/session';
+import { ResendVerificationForm } from '@/components/auth/recovery-forms';
 import { clientEnv } from '@/shared/config/client-env';
 
 export const metadata = { title: 'Portal' };
@@ -53,6 +54,27 @@ export default async function PortalIndexPage() {
           ? 'Everything below is open to this account.'
           : 'Nothing is open to this account yet.'}
       </p>
+
+      {/*
+        The nudge that makes verification happen at all.
+        
+        Placed above the feature list rather than in a dismissible corner,
+        because an unconfirmed address is not cosmetic here: the role policy
+        refuses to promote such an account, so this banner is the difference
+        between a customer who can be upgraded and one who cannot.
+      */}
+      {!session.emailVerified ? (
+        <section className="mt-10 border-l-2 border-ink py-1 pl-4">
+          <p className="text-body text-pretty">
+            Confirm your email address to finish setting up this account.
+          </p>
+          <p className="mt-1.5 text-caption text-muted text-pretty">
+            We sent a link to {session.email} when you registered. Until it is confirmed, this
+            account cannot be upgraded.
+          </p>
+          <ResendVerificationForm />
+        </section>
+      ) : null}
 
       {available.length > 0 ? (
         <ul className="mt-12 divide-y divide-hairline/[0.12] border-t border-hairline/[0.12]">

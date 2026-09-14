@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import * as argon2 from 'argon2';
 import { and, eq } from 'drizzle-orm';
 import { DomainError, ERROR_CODES, type Role } from '@anomalia/contracts';
 import { DATABASE, type DatabaseRef } from '../../../core/database/database.tokens.js';
@@ -9,6 +8,7 @@ import { TokenService} from '../../../core/auth/token.service.js';
 import { type TokenPair } from '../../../core/auth/token.service.js';
 import { SessionRegistry } from '../../../core/auth/session-registry.js';
 import { users } from '../infrastructure/identity.schema.js';
+import { PasswordHasher } from '../infrastructure/password-hasher.js';
 
 @Injectable()
 export class AuthenticateUserUseCase {
@@ -17,6 +17,7 @@ export class AuthenticateUserUseCase {
     private readonly tenantContext: TenantContext,
     private readonly tokens: TokenService,
     private readonly sessions: SessionRegistry,
+    private readonly passwords: PasswordHasher,
     private readonly audit: AuditService,
   ) {}
 
@@ -32,10 +33,10 @@ export class AuthenticateUserUseCase {
 
     const user = rows[0];
 
-    // Verify against a dummy hash when the user is absent, so the response
-    // time does not reveal whether an email is registered.
-    const hash = user?.passwordHash ?? DUMMY_HASH;
-    const passwordValid = await argon2.verify(hash, password).catch(() => false);
+    // Passing the absent case straight through: the hasher verifies against a
+    // decoy when there is no stored hash, so the response time does not reveal
+    // whether an email is registered.
+    const passwordValid = await this.passwords.verify(user?.passwordHash ?? null, password);
 
     if (!user || !passwordValid || user.status !== 'active') {
       await this.audit.record({
@@ -64,7 +65,3 @@ export class AuthenticateUserUseCase {
     return { ...pair, userId: user.id, role: user.role };
   }
 }
-
-/** A real Argon2id hash of a random string — used only for timing parity. */
-const DUMMY_HASH =
-  '$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHRzb21lc2FsdA$RdescudvJCsgt3ub+b+dWRWJTmaaJObG';

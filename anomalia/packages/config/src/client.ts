@@ -9,6 +9,24 @@ import { booleanFromEnv } from './primitives';
  * can never be shipped in a bundle by accident.
  */
 export const clientEnvSchema = z.object({
+  /**
+   * Where the SERVER reaches the API — despite the prefix.
+   *
+   * Every consumer of this value runs server-side: the authenticating proxy,
+   * the middleware's silent refresh, `getSession`, the capability fetch and the
+   * auth server actions. Browser code never uses it, because the session cookie
+   * is httpOnly and page scripts go through the same-origin proxy instead.
+   *
+   * So it must be resolvable from wherever the Next server runs, which in a
+   * container is not the same address the browser would use. Set it to the
+   * service name (`http://api:4000/api/v1`), not to the published one: pointing
+   * it at `localhost` inside a container makes the web app call itself, and
+   * every proxied request answers 502.
+   *
+   * It keeps the `NEXT_PUBLIC_` prefix — and is therefore inlined into the
+   * client bundle — only because renaming it would touch next.config and every
+   * deployment at once. Nothing reads it there.
+   */
   NEXT_PUBLIC_API_BASE_URL: z.string().url().default('http://localhost:4000/api/v1'),
   NEXT_PUBLIC_APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   NEXT_PUBLIC_DEFAULT_TENANT: z.string().default('mauritius'),

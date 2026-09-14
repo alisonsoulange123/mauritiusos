@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 
 from anomalia_ai.agents.registry import AGENT_REGISTRY
 from anomalia_ai.config import get_settings
+from anomalia_ai.providers.base import Passage
+from anomalia_ai.providers.factory import get_chat_provider
 
 router = APIRouter(prefix="/v1")
 
@@ -70,33 +72,107 @@ async def chat(
     settings = get_settings()
     intent = await AGENT_REGISTRY.get("intent").run({"message": request.message})
 
-    # No verified knowledge means no answer. Refusing is correct here: an
-    # uncited answer about immigration is precisely what the guardrails forbid.
-    if not request.context.knowledge:
-        return ChatResponse(
-            answer=(
-                "I do not have a verified source for that yet. An advisor can help, "
-                "and I have flagged the topic as a gap in our knowledge base."
-            ),
-            citations=[],
-            confidence=0.2,
-            suggestedActions=[
-                SuggestedAction(type="contact_advisor", label="Talk to an advisor"),
-            ],
-        )
+    passages = await _gather_passages(request, x_anomalia_tenant_id, settings.max_context_items)
 
-    top = request.context.knowledge[0]
-    confidence = min(top.confidence, float(intent.get("confidence", 0.5)))
+    # No verified knowledge means no answer. Refusing is correct here: an
+    # uncited answer about immigration is precisely what the guardrails forbid,
+    # and it is the one case where saying nothing is the useful thing to do.
+    if not passages:
+        return _decline(request.locale)
+
+    completion = await get_chat_provider().answer(
+        question=request.message,
+        passages=passages,
+        locale=request.locale,
+    )
+
+    # The floor is the weakest thing the answer rests on: the least confident
+    # passage quoted, and the classifier's own certainty about the question.
+    confidence = min(
+        min(passage.confidence for passage in passages),
+        _as_confidence(intent.get("confidence")),
+    )
 
     return ChatResponse(
-        answer=f"Based on verified sources: {top.excerpt}",
-        citations=[item.id for item in request.context.knowledge],
+        answer=completion.text,
+        citations=[passage.knowledge_id for passage in passages],
         confidence=confidence,
         suggestedActions=(
             [SuggestedAction(type="contact_advisor", label="Have an advisor review this")]
             if confidence < settings.human_review_threshold
             else []
         ),
+        usage=completion.usage,
+    )
+
+
+async def _gather_passages(
+    request: ChatRequest,
+    tenant_id: str,
+    limit: int,
+) -> list[Passage]:
+    """Fuses what the API found lexically with what this side finds by vector.
+
+    The split is the architecture, not an accident: the Node API owns the
+    knowledge contract and does the lexical half; the worker owns the embeddings
+    and does the vector half. Reciprocal Rank Fusion combines them on RANK
+    rather than score, because a cosine similarity and a `ts_rank` are on
+    incomparable scales and blending the raw numbers would silently let one
+    strategy decide everything.
+    """
+    lexical = [
+        {
+            "id": item.id,
+            "title": item.title,
+            "excerpt": item.excerpt,
+            "confidence": item.confidence,
+        }
+        for item in request.context.knowledge
+    ]
+
+    retrieval = AGENT_REGISTRY.get("retrieval")
+    result = await retrieval.run(
+        {
+            "tenant_id": tenant_id,
+            "query": request.message,
+            "locale": request.locale,
+            "lexical_hits": lexical,
+            "limit": limit,
+        }
+    )
+
+    hits = result.get("hits")
+    fused = hits if isinstance(hits, list) else []
+
+    return [
+        Passage(
+            knowledge_id=str(hit.get("id", "")),
+            title=str(hit.get("title", "")),
+            text=str(hit.get("excerpt", "")),
+            confidence=_as_confidence(hit.get("confidence"), default=0.5),
+        )
+        for hit in fused
+        if hit.get("excerpt")
+    ]
+
+
+def _decline(locale: str) -> ChatResponse:
+    message = {
+        "fr": (
+            "Je n'ai pas encore de source vérifiée sur ce point. Un conseiller peut vous aider, "
+            "et j'ai signalé ce sujet comme une lacune de notre base de connaissances."
+        ),
+        "en": (
+            "I do not have a verified source for that yet. An advisor can help, "
+            "and I have flagged the topic as a gap in our knowledge base."
+        ),
+    }["fr" if locale.lower().startswith("fr") else "en"]
+
+    return ChatResponse(
+        answer=message,
+        citations=[],
+        confidence=0.2,
+        suggestedActions=[SuggestedAction(type="contact_advisor", label="Talk to an advisor")],
     )
 
 
@@ -114,3 +190,10 @@ async def list_agents() -> dict[str, Any]:
             for definition in AGENT_REGISTRY.definitions
         ]
     }
+
+
+def _as_confidence(value: object, default: float = 0.5) -> float:
+    """Reads a confidence out of an agent's reply, clamped to 0-1."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return max(0.0, min(1.0, float(value)))
+    return default

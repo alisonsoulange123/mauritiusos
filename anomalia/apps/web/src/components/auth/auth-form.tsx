@@ -2,10 +2,8 @@
 
 import Link from 'next/link';
 import { useActionState } from 'react';
-import { useFormStatus } from 'react-dom';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/shared/lib/cn';
 import type { AuthFormState } from '@/shared/auth/actions';
+import { FormAlert, FormField, Submit } from './form-parts';
 
 export interface AuthFormProps {
   action: (state: AuthFormState, formData: FormData) => Promise<AuthFormState>;
@@ -15,14 +13,10 @@ export interface AuthFormProps {
   passwordHint?: string;
   /** Carried through the form so a redirect survives the round trip. */
   next?: string;
+  /** Sign-in only: the way out for someone who cannot remember the password. */
+  aside?: { label: string; href: string };
   footer: { prompt: string; label: string; href: string };
 }
-
-const CONTROL = cn(
-  'mt-2 w-full rounded-lg border border-hairline/[0.16] bg-surface px-3.5 py-2.5',
-  'text-body text-ink transition-colors duration-200 ease-editorial',
-  'placeholder:text-muted hover:border-hairline/30 focus:border-ink/50',
-);
 
 /**
  * Sign-in and registration share one form because they differ by one field and
@@ -39,6 +33,7 @@ export function AuthForm({
   includeName,
   passwordHint,
   next,
+  aside,
   footer,
 }: AuthFormProps) {
   const [state, formAction] = useActionState<AuthFormState, FormData>(action, {});
@@ -47,16 +42,7 @@ export function AuthForm({
     <form action={formAction} className="mt-10">
       {next ? <input type="hidden" name="next" value={next} /> : null}
 
-      {state.error ? (
-        <p
-          // Announced rather than merely shown: a failed sign-in that only
-          // changes colour is invisible to a screen reader.
-          role="alert"
-          className="mb-6 border-l-2 border-ink py-1 pl-3 text-caption text-ink"
-        >
-          {state.error}
-        </p>
-      ) : null}
+      {state.error ? <FormAlert>{state.error}</FormAlert> : null}
 
       <div className="space-y-5">
         {includeName ? (
@@ -91,6 +77,18 @@ export function AuthForm({
         />
       </div>
 
+      {/*
+        Under the password field and above the button, which is where someone
+        who has already failed to remember it is looking.
+      */}
+      {aside ? (
+        <p className="mt-3 text-caption">
+          <Link href={aside.href} className="text-muted underline underline-offset-4 hover:text-ink">
+            {aside.label}
+          </Link>
+        </p>
+      ) : null}
+
       <Submit label={submitLabel} />
 
       <p className="mt-8 text-caption text-muted">
@@ -100,60 +98,5 @@ export function AuthForm({
         </Link>
       </p>
     </form>
-  );
-}
-
-interface FormFieldProps {
-  id: string;
-  label: string;
-  type: string;
-  autoComplete: string;
-  required?: boolean;
-  hint?: string;
-  error?: string;
-}
-
-function FormField({ id, label, type, autoComplete, required, hint, error }: FormFieldProps) {
-  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
-
-  return (
-    <div>
-      <label htmlFor={id} className="text-caption font-medium text-ink">
-        {label}
-      </label>
-      <input
-        id={id}
-        name={id}
-        type={type}
-        autoComplete={autoComplete}
-        required={required}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={CONTROL}
-      />
-      {error ? (
-        <p id={`${id}-error`} className="mt-1.5 text-caption text-ink">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={`${id}-hint`} className="mt-1.5 text-caption text-muted">
-          {hint}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Split out because `useFormStatus` reports on the nearest enclosing form, so
- * it only works from inside one — reading it in `AuthForm` would always return
- * idle.
- */
-function Submit({ label }: { label: string }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" size="lg" className="mt-8 w-full" disabled={pending}>
-      {pending ? 'Working…' : label}
-    </Button>
   );
 }

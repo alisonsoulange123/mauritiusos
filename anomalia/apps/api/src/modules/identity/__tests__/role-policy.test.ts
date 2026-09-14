@@ -6,8 +6,26 @@ const ADMIN = 'admin-1';
 const ADVISOR = 'advisor-1';
 const TARGET = 'target-1';
 
+/** Targets are verified unless a test is specifically about verification. */
 const ask = (actorId: string, actorRoles: Role[], from: Role, to: Role) =>
-  refuseRoleChange({ actorId, actorRoles, targetId: TARGET, from, to });
+  refuseRoleChange({
+    actorId,
+    actorRoles,
+    targetId: TARGET,
+    from,
+    to,
+    targetEmailVerified: true,
+  });
+
+const askUnverified = (actorId: string, actorRoles: Role[], from: Role, to: Role) =>
+  refuseRoleChange({
+    actorId,
+    actorRoles,
+    targetId: TARGET,
+    from,
+    to,
+    targetEmailVerified: false,
+  });
 
 describe('refuseRoleChange', () => {
   it('lets an advisor move a lead onto the paid tier', () => {
@@ -59,6 +77,7 @@ describe('refuseRoleChange', () => {
         targetId: TARGET,
         from: 'advisor',
         to: 'admin',
+        targetEmailVerified: true,
       }),
     ).toBe('self-change');
 
@@ -69,6 +88,7 @@ describe('refuseRoleChange', () => {
         targetId: TARGET,
         from: 'admin',
         to: 'lead',
+        targetEmailVerified: true,
       }),
     ).toBe('self-change');
   });
@@ -77,5 +97,43 @@ describe('refuseRoleChange', () => {
     // Roles are a list. Someone holding both must not be judged by ordering.
     expect(ask('x', ['lead', 'admin'], 'lead', 'advisor')).toBeNull();
     expect(ask('x', ['client', 'advisor'], 'lead', 'client')).toBeNull();
+  });
+
+  it('will not promote an account whose address is unconfirmed', () => {
+    // The paid tier is granted to a person. An unconfirmed address is a string
+    // somebody typed, which may well be somebody else's.
+    expect(askUnverified(ADVISOR, ['advisor'], 'lead', 'client')).toBe('unverified-email');
+    expect(askUnverified(ADMIN, ['admin'], 'lead', 'advisor')).toBe('unverified-email');
+  });
+
+  it('applies the verification rule to admins too', () => {
+    // Not an authority check: no amount of privilege turns an unconfirmed
+    // address into a confirmed one.
+    expect(askUnverified(ADMIN, ['admin'], 'lead', 'admin')).toBe('unverified-email');
+  });
+
+  it('still allows movement inside the unverified ceiling', () => {
+    // `visitor` and `lead` are what an unproven identity is worth, so moving
+    // between them stays possible — otherwise a mistaken promotion could never
+    // be undone for an account that never confirmed.
+    expect(askUnverified(ADVISOR, ['advisor'], 'lead', 'visitor')).toBeNull();
+    expect(askUnverified(ADVISOR, ['advisor'], 'visitor', 'lead')).toBeNull();
+  });
+
+  it('demotes an unverified client back down without complaint', () => {
+    // The account was promoted before the rule existed, or verification was
+    // later revoked. Removing privilege must never be blocked by the same
+    // check that guards granting it.
+    expect(askUnverified(ADVISOR, ['advisor'], 'client', 'lead')).toBeNull();
+    expect(askUnverified(ADMIN, ['admin'], 'advisor', 'lead')).toBeNull();
+  });
+
+  it('checks authority before verification', () => {
+    // Someone with no standing gets the refusal that reflects their standing,
+    // not a hint about the target's account state.
+    expect(askUnverified('nobody', ['lead'], 'lead', 'client')).toBe('not-permitted');
+    // An advisor reaching outside the ladder is told that, not told about the
+    // target's mailbox.
+    expect(askUnverified(ADVISOR, ['advisor'], 'lead', 'advisor')).toBe('requires-admin');
   });
 });

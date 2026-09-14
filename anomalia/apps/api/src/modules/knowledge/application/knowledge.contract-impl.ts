@@ -11,12 +11,7 @@ import { DATABASE, type DatabaseRef } from '../../../core/database/database.toke
 import { TenantContext } from '../../../core/tenancy/tenant-context.js';
 import { ConfigService } from '../../../core/config/config.service.js';
 import { knowledgeItems, knowledgeSources } from '../infrastructure/knowledge.schema.js';
-
-type KnowledgeEnv = {
-  KNOWLEDGE_MIN_CONFIDENCE: number;
-  KNOWLEDGE_SEARCH_LIMIT: number;
-  KNOWLEDGE_VERIFICATION_TTL_DAYS: number;
-};
+import type { KnowledgeEnv } from './knowledge-env.js';
 
 /**
  * Verified retrieval.
@@ -53,13 +48,26 @@ export class KnowledgeContractImpl implements KnowledgeContract, OnModuleInit {
     const minConfidence = (query.minConfidence ?? env.KNOWLEDGE_MIN_CONFIDENCE) * 100;
     const locale = query.locale ?? this.tenantContext.locale();
 
-    // Postgres full-text ranking. `websearch_to_tsquery` accepts what users
-    // actually type (quoted phrases, `or`, `-exclusions`) instead of erroring
-    // on syntax the way `to_tsquery` does.
-    const rankExpression = sql<number>`ts_rank(
-      to_tsvector('simple', ${knowledgeItems.title} || ' ' || ${knowledgeItems.content}),
-      websearch_to_tsquery('simple', ${query.query})
-    )`;
+    /*
+     * Postgres full-text ranking, with both sides folded through `unaccent`.
+     *
+     * `websearch_to_tsquery` accepts what people actually type — quoted
+     * phrases, `or`, `-exclusions` — instead of erroring on syntax the way
+     * `to_tsquery` does.
+     *
+     * The `unaccent` calls are what make the French half of the knowledge base
+     * reachable. Without them Postgres indexes 'société' and a reader typing
+     * "societe" matches nothing: the content is live, correct, and invisible
+     * to anyone on a keyboard without accents, which is most phones. The
+     * extension has been installed since the first migration, with a comment
+     * saying it was there "so Rivière matches Riviere" — it simply was never
+     * used. Folding BOTH sides is the point; folding one changes which
+     * mismatch you get, not whether you get one.
+     */
+    const searchable = sql`unaccent(${knowledgeItems.title} || ' ' || ${knowledgeItems.content})`;
+    const searchQuery = sql`websearch_to_tsquery('simple', unaccent(${query.query}))`;
+
+    const rankExpression = sql<number>`ts_rank(to_tsvector('simple', ${searchable}), ${searchQuery})`;
 
     const rows = await this.database.db
       .select({
@@ -82,8 +90,7 @@ export class KnowledgeContractImpl implements KnowledgeContract, OnModuleInit {
           eq(knowledgeItems.locale, locale),
           sql`${knowledgeItems.confidenceScore} >= ${minConfidence}`,
           query.category ? eq(knowledgeItems.category, query.category) : undefined,
-          sql`to_tsvector('simple', ${knowledgeItems.title} || ' ' || ${knowledgeItems.content})
-              @@ websearch_to_tsquery('simple', ${query.query})`,
+          sql`to_tsvector('simple', ${searchable}) @@ ${searchQuery}`,
           // Freshness gate: unverified-for-too-long items are withheld.
           sql`(${knowledgeItems.verifiedAt} IS NULL
                OR ${knowledgeItems.verifiedAt} > now() - (${env.KNOWLEDGE_VERIFICATION_TTL_DAYS} || ' days')::interval)`,

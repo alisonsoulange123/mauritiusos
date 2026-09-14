@@ -47,5 +47,8 @@ class IntentAgent:
 
         # Ambiguous input falls through to the model. Until that is wired, be
         # explicit about the low confidence rather than guessing confidently.
-        logger.debug("intent unresolved by keywords; deferring to model", message_length=len(message))
+        logger.debug(
+            "intent unresolved by keywords; deferring to model",
+            message_length=len(message),
+        )
         return {"primary_intent": "lifestyle_change", "confidence": 0.3, "method": "fallback"}

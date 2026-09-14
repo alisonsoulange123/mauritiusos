@@ -155,6 +155,150 @@ export async function signOut(): Promise<void> {
   redirect('/');
 }
 
+/* ── Account recovery ───────────────────────────────────────────────────── */
+
+export interface RecoveryFormState extends AuthFormState {
+  /** Rendered in place of the form once the step has succeeded. */
+  done?: boolean;
+}
+
+const emailSchema = z.object({ email: z.string().email('Enter a valid email address.') });
+
+const newPasswordSchema = z
+  .object({
+    password: z.string().min(12, 'Use at least 12 characters.'),
+    confirm: z.string(),
+  })
+  // Confirmation is a frontend concern only — the API has no opinion about a
+  // second field. It is here because a mistyped password in a flow with no
+  // "old password" to fall back on locks the account out a second time.
+  .refine((fields) => fields.password === fields.confirm, {
+    path: ['confirm'],
+    message: 'Those passwords do not match.',
+  });
+
+/**
+ * Step one: ask for a link.
+ *
+ * Shows the same confirmation for a registered address and an unknown one,
+ * because the API answers both identically — that is what stops the form from
+ * being a way to test whether someone has an account here. A transport
+ * failure is still reported honestly; it says nothing about the address.
+ */
+export async function requestPasswordReset(
+  _previous: RecoveryFormState,
+  formData: FormData,
+): Promise<RecoveryFormState> {
+  const fields = emailSchema.safeParse({ email: formData.get('email') });
+  if (!fields.success) {
+    return { error: 'Check the details below.', fieldErrors: fieldErrorsOf(fields.error) };
+  }
+
+  const response = await callApi('/auth/password/forgot', fields.data).catch(() => null);
+  if (!response) return { error: 'Could not reach the service. Try again in a moment.' };
+
+  if (!response.ok) {
+    // In practice only the rate limiter lands here, and saying so is fine:
+    // it reveals nothing about the address that was typed.
+    return { error: await messageFrom(response, 'That request could not be completed.') };
+  }
+
+  return { done: true };
+}
+
+/** Step two: redeem the link and choose a new password. */
+export async function resetPassword(
+  _previous: RecoveryFormState,
+  formData: FormData,
+): Promise<RecoveryFormState> {
+  const token = formData.get('token')?.toString() ?? '';
+  if (!token) return { error: 'That link is incomplete. Request a new one.' };
+
+  const fields = newPasswordSchema.safeParse({
+    password: formData.get('password'),
+    confirm: formData.get('confirm'),
+  });
+  if (!fields.success) {
+    return { error: 'Check the details below.', fieldErrors: fieldErrorsOf(fields.error) };
+  }
+
+  const response = await callApi('/auth/password/reset', {
+    token,
+    password: fields.data.password,
+  }).catch(() => null);
+  if (!response) return { error: 'Could not reach the service. Try again in a moment.' };
+
+  if (!response.ok) {
+    return { error: await messageFrom(response, 'That reset link is no longer valid.') };
+  }
+
+  /*
+   * Deliberately NOT signed in here.
+   *
+   * The API returns no tokens for a reset, so there is nothing to establish —
+   * and that is the right shape: whoever followed the link proved they can
+   * read a mailbox, not that they knew the old password. Making them sign in
+   * with the password they just chose costs one screen and means a stolen
+   * link alone is not a session.
+   */
+  redirect('/login?reset=1');
+}
+
+/**
+ * Confirms an address from an emailed link.
+ *
+ * A server action rather than something the page runs on load, because mail
+ * clients and security scanners follow links before a human does. A GET that
+ * consumed the token would have it spent by a link checker, and the user would
+ * arrive to find their own confirmation already used.
+ */
+export async function confirmEmail(
+  _previous: RecoveryFormState,
+  formData: FormData,
+): Promise<RecoveryFormState> {
+  const token = formData.get('token')?.toString() ?? '';
+  if (!token) return { error: 'That link is incomplete. Request a new one from the portal.' };
+
+  const response = await callApi('/auth/email/verify', { token }).catch(() => null);
+  if (!response) return { error: 'Could not reach the service. Try again in a moment.' };
+
+  if (!response.ok) {
+    return { error: await messageFrom(response, 'That confirmation link is no longer valid.') };
+  }
+
+  return { done: true };
+}
+
+/** Sends the signed-in user another confirmation link. */
+export async function resendVerification(
+  _previous: RecoveryFormState,
+  _formData: FormData,
+): Promise<RecoveryFormState> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return { error: 'Sign in again to request a new link.' };
+
+  const response = await fetch(
+    `${clientEnv.NEXT_PUBLIC_API_BASE_URL}/auth/email/verification`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-anomalia-tenant': clientEnv.NEXT_PUBLIC_DEFAULT_TENANT,
+        authorization: `Bearer ${token}`,
+      },
+      cache: 'no-store',
+    },
+  ).catch(() => null);
+
+  if (!response) return { error: 'Could not reach the service. Try again in a moment.' };
+  if (!response.ok) {
+    return { error: await messageFrom(response, 'That request could not be completed.') };
+  }
+
+  return { done: true };
+}
+
 const fieldErrorsOf = (error: z.ZodError): Record<string, string> =>
   Object.fromEntries(
     error.issues.map((issue) => [issue.path.join('.') || 'form', issue.message]),
