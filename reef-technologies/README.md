@@ -52,6 +52,25 @@ pnpm dev                                        # api :4000 · web :3000
 cd apps/ai-worker && pip install -e ".[dev]" && uvicorn reef_technologies_ai.main:app --reload
 ```
 
+**Ports already taken?** 5432, 6379 and 8000 are the first ports every other
+project claims. Put an override in `infrastructure/docker/.env` — compose reads
+it from the compose file's own directory, not from the repository root:
+
+```bash
+POSTGRES_PORT=55432
+REDIS_PORT=56379
+```
+
+Then point `DATABASE_URL`, `MIGRATION_DATABASE_URL` and `REDIS_URL` in
+`apps/api/.env` at those ports, and set the worker's `PORT` plus the API's
+`AI_WORKER_BASE_URL` if 8000 is busy. Containers reach each other by service
+name inside the compose network, so only your own tools care.
+
+Two roles, deliberately: `DATABASE_URL` is the unprivileged application role
+that row-level security binds, and `MIGRATION_DATABASE_URL` is the owner used
+by `db:migrate`, `seed` and `provision`. Running the API as the owner would
+silently switch tenant isolation off.
+
 | URL | What |
 |---|---|
 | `localhost:3000` | Landing + portal |
