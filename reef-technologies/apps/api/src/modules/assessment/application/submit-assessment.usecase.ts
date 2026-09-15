@@ -27,6 +27,8 @@ export interface SubmitAssessmentInput {
     goal: string;
     timelineMonths?: number;
   };
+  /** The signed-in caller, when there is one. Anonymous assessments omit it. */
+  userId?: string;
 }
 
 export interface AssessmentResult {
@@ -122,6 +124,9 @@ export class SubmitAssessmentUseCase {
       score,
       primaryIntent: normalizeIntent(input.answers.goal),
       profileSnapshot: input.answers,
+      // Optional in the catalog because an anonymous assessment is a real and
+      // expected case. Absent, the answers can never reach a profile.
+      ...(input.userId ? { userId: input.userId } : {}),
     });
 
     return result;

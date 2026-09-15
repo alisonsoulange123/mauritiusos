@@ -12,6 +12,8 @@ import { SendEmailVerificationUseCase } from './application/send-email-verificat
 import { DescribeAccountUseCase } from './application/describe-account.usecase.js';
 import { ListUsersUseCase } from './application/list-users.usecase.js';
 import { GetUserDetailUseCase } from './application/get-user-detail.usecase.js';
+import { ManageProfileUseCase } from './application/manage-profile.usecase.js';
+import { IdentitySubscribers } from './application/identity.subscribers.js';
 import { IdentityContractImpl } from './application/identity.contract-impl.js';
 import { PasswordHasher } from './infrastructure/password-hasher.js';
 import { RecoveryMailer } from './infrastructure/recovery-mailer.js';
@@ -31,6 +33,8 @@ import { RecoveryMailer } from './infrastructure/recovery-mailer.js';
     DescribeAccountUseCase,
     ListUsersUseCase,
     GetUserDetailUseCase,
+    ManageProfileUseCase,
+    IdentitySubscribers,
     IdentityContractImpl,
     PasswordHasher,
     RecoveryMailer,

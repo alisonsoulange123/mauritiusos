@@ -271,10 +271,15 @@ just compiled. What was confirmed:
 | An environment can be stood up from nothing | migrate → provision → the API serves: the provisioned administrator signs in, `/auth/me` returns them as a verified admin, and the same token is refused 403 against another tenant |
 | A half-provisioned tenant is closed | created as `provisioning` and activated last, so an interrupted run leaves a tenant no request can reach rather than a live one with no way in — asserted, along with the same gate refusing a suspended tenant |
 
+| The decision engine runs on real data | the assessment already asked for nationality, occupation, income and family status and stored them in a snapshot that went nowhere, while the rules engine read those exact fields off a profile written once at registration — the funnel now enriches the profile over the bus, and the concierge is handed it instead of `null` |
+| Inferred data never overwrites stated data | a later assessment fills only what is empty; a profile its owner edited is left alone, because a throwaway questionnaire answer should not silently replace a considered one |
+| An assessment can be attributed at all | **fixed**: `assessment.completed` declares an optional `userId` and nothing ever set it, so answers from a signed-in person were indistinguishable from an anonymous visitor's and could never reach their profile |
+| The concierge can cite more than one source | **fixed**: retrieval fusion keyed on `knowledge_id` while both producers emit `id`, so every hit collapsed into a single bucket and exactly one source was ever cited — which read as a ranking preference rather than a bug. Two now, where two match |
+
 | Capability outage degrades safely | with the API down the site keeps its features from a last-known-good snapshot; only a cold start with no snapshot reports "unavailable" |
 
 `pnpm verify` is green: boundaries clean, 0 type errors, 0 lint errors/warnings,
-144 unit tests across the TypeScript workspace, 30 in the Python worker and 38 HTTP integration tests, all three images building and running.
+150 unit tests across the TypeScript workspace, 33 in the Python worker and 38 HTTP integration tests, all three images building and running.
 
 The session-registry tests talk to a real Redis, because the part worth testing
 is a Lua compare-and-swap and a mock of it would only prove the mock agrees

@@ -76,6 +76,19 @@ export default async function PortalIndexPage() {
         </section>
       ) : null}
 
+      {/*
+        Linked from the index rather than left to be discovered. The eligibility
+        engine returns nothing at all without nationality, date of birth, income
+        and family status — so an empty profile is the difference between the
+        concierge answering and declining.
+      */}
+      <p className="mt-6 text-caption text-muted">
+        <Link href="/portal/profile" className="text-ink underline underline-offset-4">
+          Your profile
+        </Link>{' '}
+        — what the eligibility rules are evaluated against.
+      </p>
+
       {available.length > 0 ? (
         <ul className="mt-12 divide-y divide-hairline/[0.12] border-t border-hairline/[0.12]">
           {available.map((entry) => (

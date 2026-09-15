@@ -59,7 +59,14 @@ export class ChatUseCase {
     // Resolve eligibility BEFORE the model runs, so the answer restates a
     // rules-engine verdict rather than inventing one. Both lookups degrade:
     // a user with an incomplete profile still gets a knowledge-grounded reply.
-    const eligibility = await this.resolveEligibility(input.userId);
+    /*
+     * Fetched once and used twice: the model needs the profile as context, and
+     * the rules engine needs it as input. It used to be read only inside the
+     * eligibility resolution, so the worker was handed `profile: null` even
+     * when one existed.
+     */
+    const profile = await this.loadProfile(input.userId);
+    const eligibility = await this.resolveEligibility(profile);
 
     await this.recordMessage(tenantId, sessionId, 'user', input.message);
 
@@ -69,7 +76,9 @@ export class ChatUseCase {
       sessionId,
       locale,
       context: {
-        profile: null, // populated via IDENTITY_CONTRACT once profiles are richer
+        // Spread into a plain record: the worker's context is deliberately
+        // schemaless on this field, and the contract's view is a typed object.
+        profile: profile ? { ...profile } : null,
         eligibility,
         knowledge: hits.map((hit) => ({
           id: hit.knowledgeId,
@@ -100,12 +109,24 @@ export class ChatUseCase {
    * imports. Returns null whenever the chain cannot complete, because a chat
    * reply is still useful without an eligibility verdict.
    */
-  private async resolveEligibility(userId: string): Promise<Record<string, unknown> | null> {
+  /** The profile, or null when identity is disabled or the person has none. */
+  private async loadProfile(userId: string) {
     const identity = this.contracts.tryGet(IDENTITY_CONTRACT);
-    const immigration = this.contracts.tryGet(IMMIGRATION_CONTRACT);
-    if (!identity || !immigration) return null;
+    return identity ? await identity.getProfile(userId) : null;
+  }
 
-    const profile = await identity.getProfile(userId);
+  private async resolveEligibility(
+    profile: Awaited<ReturnType<ChatUseCase['loadProfile']>>,
+  ): Promise<Record<string, unknown> | null> {
+    const immigration = this.contracts.tryGet(IMMIGRATION_CONTRACT);
+    if (!immigration) return null;
+
+    /*
+     * An incomplete profile yields no verdict rather than a guessed one. That
+     * is the guardrail working: the concierge restates a rules-engine result,
+     * so with nothing to run the rules on it must say nothing — which, until
+     * profiles were ever written, was every signed-in user.
+     */
     if (
       !profile?.nationality ||
       profile.age === null ||

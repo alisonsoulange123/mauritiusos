@@ -16,6 +16,7 @@ import { ResetPasswordUseCase } from '../../application/reset-password.usecase.j
 import { VerifyEmailUseCase } from '../../application/verify-email.usecase.js';
 import { SendEmailVerificationUseCase } from '../../application/send-email-verification.usecase.js';
 import { DescribeAccountUseCase } from '../../application/describe-account.usecase.js';
+import { ManageProfileUseCase } from '../../application/manage-profile.usecase.js';
 import { ListUsersUseCase } from '../../application/list-users.usecase.js';
 import { GetUserDetailUseCase } from '../../application/get-user-detail.usecase.js';
 
@@ -41,6 +42,25 @@ const resetPasswordSchema = z.object({
 });
 
 const verifyEmailSchema = z.object({ token: z.string().min(1).max(400) });
+
+/**
+ * The profile the immigration rules actually match on.
+ *
+ * `journeyStage` is absent by design — it is the funnel's view of someone, set
+ * by the platform as they progress, not a field they declare about themselves.
+ */
+const profileSchema = z.object({
+  firstName: z.string().max(80).nullable().optional(),
+  lastName: z.string().max(80).nullable().optional(),
+  // ISO 3166-1 alpha-2: what the eligibility rules compare against.
+  nationality: z.string().length(2).toUpperCase().nullable().optional(),
+  currentCountry: z.string().length(2).toUpperCase().nullable().optional(),
+  birthDate: z.string().date().nullable().optional(),
+  occupation: z.string().max(60).nullable().optional(),
+  monthlyIncome: z.number().int().min(0).max(100_000_000).nullable().optional(),
+  currency: z.string().length(3).toUpperCase().nullable().optional(),
+  familyStatus: z.enum(['single', 'couple', 'family']).nullable().optional(),
+});
 
 const userDirectorySchema = z.object({
   search: z.string().max(120).optional(),
@@ -74,6 +94,7 @@ export class IdentityController {
     private readonly verifyEmail: VerifyEmailUseCase,
     private readonly sendVerification: SendEmailVerificationUseCase,
     private readonly describeAccount: DescribeAccountUseCase,
+    private readonly profile: ManageProfileUseCase,
     private readonly listUsers: ListUsersUseCase,
     private readonly userDetail: GetUserDetailUseCase,
     private readonly tenantContext: TenantContext,
@@ -272,6 +293,27 @@ export class IdentityController {
       // again, and whoever made the change should know that before support does.
       sessions_revoked: result.sessionsRevoked,
     };
+  }
+
+  /**
+   * The caller's own profile — never anyone else's.
+   *
+   * The id comes from the verified token rather than the path, so there is no
+   * parameter to tamper with and no authorization question to get wrong.
+   */
+  @Get('profile')
+  @ApiOperation({ summary: 'Your profile' })
+  async getProfile(@CurrentActor() actor: AuthenticatedActor) {
+    return this.profile.get(actor.userId);
+  }
+
+  @Patch('profile')
+  @ApiOperation({ summary: 'Update your profile' })
+  async updateProfile(
+    @Body(zodBody(profileSchema)) body: z.infer<typeof profileSchema>,
+    @CurrentActor() actor: AuthenticatedActor,
+  ) {
+    return this.profile.update(actor.userId, body);
   }
 
   @Get('me')

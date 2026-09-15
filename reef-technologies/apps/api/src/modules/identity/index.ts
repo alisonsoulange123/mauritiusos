@@ -22,6 +22,12 @@ export default defineModule({
     IDENTITY_ARGON_MEMORY_KIB: z.coerce.number().int().min(19456).default(65536),
   }),
   provides: [IDENTITY_CONTRACT],
+  /**
+   * The funnel already asks for nationality, occupation, income and family
+   * status — the exact fields the immigration rules match on. Identity listens
+   * so that a completed assessment enriches the profile the engine reads.
+   */
+  subscribes: ['assessment.completed'],
   publishes: [
     'identity.user.registered',
     'identity.role.changed',

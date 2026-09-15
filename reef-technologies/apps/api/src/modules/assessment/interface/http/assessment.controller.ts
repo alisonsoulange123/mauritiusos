@@ -2,7 +2,11 @@ import { Body, Controller, Param, Post } from '@nestjs/common';
 import { ParseUUIDPipe } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Public } from '../../../../core/auth/auth.decorators.js';
+import {
+  CurrentActor,
+  Public,
+  type AuthenticatedActor,
+} from '../../../../core/auth/auth.decorators.js';
 import { zodBody } from '../../../../core/http/zod-validation.pipe.js';
 import { StartAssessmentUseCase } from '../../application/start-assessment.usecase.js';
 import { SubmitAssessmentUseCase } from '../../application/submit-assessment.usecase.js';
@@ -54,7 +58,22 @@ export class AssessmentController {
   async submitAssessment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(zodBody(submitSchema)) body: z.infer<typeof submitSchema>,
+    /*
+     * Present only when the caller happens to be signed in.
+     *
+     * The route stays `@Public()` — the assessment is the top of the funnel and
+     * must work for a visitor with no account. But the guard still binds an
+     * actor when a valid token comes with the request, and until now nothing
+     * read it: the completion event went out with no `userId`, so an answer set
+     * from a signed-in person was indistinguishable from an anonymous one and
+     * could never reach their profile.
+     */
+    @CurrentActor() actor: AuthenticatedActor | undefined,
   ) {
-    return this.submit.execute({ assessmentId: id, answers: body.answers });
+    return this.submit.execute({
+      assessmentId: id,
+      answers: body.answers,
+      ...(actor ? { userId: actor.userId } : {}),
+    });
   }
 }

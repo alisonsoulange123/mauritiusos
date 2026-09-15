@@ -99,9 +99,31 @@ class RetrievalAgent:
 
         for ranking in (vector_hits, lexical_hits):
             for position, hit in enumerate(ranking):
-                key = str(hit.get("knowledge_id") or hit.get("knowledgeId"))
+                key = _identify(hit)
+                # A hit nothing can identify cannot be fused or cited, and
+                # bucketing them all under "None" — which is what happened —
+                # collapsed every result into one document.
+                if key is None:
+                    continue
                 scores[key] = scores.get(key, 0.0) + 1.0 / (_RRF_K + position + 1)
                 documents.setdefault(key, hit)
 
         ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         return [{**documents[key], "fusion_score": round(score, 6)} for key, score in ordered]
+
+
+def _identify(hit: dict[str, Any]) -> str | None:
+    """The document a hit refers to, whichever spelling its producer used.
+
+    The two sides disagreed and nobody noticed: both the API's lexical hits and
+    this module's own vector hits carry `id`, while fusion looked for
+    `knowledge_id`. Every key resolved to the string "None", so all results
+    landed in a single bucket and the concierge could cite exactly one source
+    however many it had retrieved — which looks like a ranking preference
+    rather than a bug.
+    """
+    for field in ("id", "knowledge_id", "knowledgeId"):
+        value = hit.get(field)
+        if value:
+            return str(value)
+    return None

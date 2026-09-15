@@ -52,3 +52,45 @@ class TestChunking:
 
     def test_empty_text_yields_no_chunks(self) -> None:
         assert EmbeddingAgent.chunk("") == []
+
+
+class TestFusionIdentity:
+    def test_keeps_distinct_documents_apart(self) -> None:
+        """A regression guard for a bug with a very quiet symptom.
+
+        Fusion keyed on `knowledge_id`; both producers emit `id`. Every key
+        became the string "None", so three retrieved documents fused into one
+        and the concierge cited a single source no matter what it found —
+        indistinguishable from a deliberate ranking choice.
+        """
+        from reef_technologies_ai.agents.retrieval_agent import RetrievalAgent
+
+        fused = RetrievalAgent.fuse(
+            [{"id": "a", "excerpt": "one"}, {"id": "b", "excerpt": "two"}],
+            [{"id": "c", "excerpt": "three"}],
+        )
+
+        # Three documents in, three out. The ORDER is asserted separately —
+        # under RRF the head of each ranking ties, so pinning the sequence here
+        # would be testing the tie-break rather than the identity bug.
+        assert len(fused) == 3
+        assert {hit["id"] for hit in fused} == {"a", "b", "c"}
+        assert all(hit.get("excerpt") for hit in fused)
+
+    def test_still_rewards_agreement_between_strategies(self) -> None:
+        from reef_technologies_ai.agents.retrieval_agent import RetrievalAgent
+
+        fused = RetrievalAgent.fuse(
+            [{"id": "a"}, {"id": "b"}],
+            [{"id": "b"}, {"id": "c"}],
+        )
+
+        # "b" is found by both, so it outranks either list's own leader.
+        assert fused[0]["id"] == "b"
+
+    def test_drops_a_hit_nothing_can_identify(self) -> None:
+        from reef_technologies_ai.agents.retrieval_agent import RetrievalAgent
+
+        fused = RetrievalAgent.fuse([{"excerpt": "orphan"}], [{"id": "a"}])
+
+        assert [hit["id"] for hit in fused] == ["a"]
