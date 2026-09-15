@@ -14,7 +14,17 @@ import { RecoveryTokenService, type RecoverySubject } from '../recovery-tokens.j
  * Skips rather than fails when nothing is listening, so `pnpm verify` still
  * works on a laptop with no infrastructure up. CI provides the service.
  */
-const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
+/*
+ * `TEST_REDIS_URL` first, and a default that is only a convenience.
+ *
+ * These tests write and delete keys. Falling straight through to
+ * `localhost:6379` means that on a machine where another project already owns
+ * that port — which is the normal state of a developer's laptop — a test run
+ * reaches into somebody else's Redis. Naming a test-specific variable makes
+ * the target a decision rather than an accident.
+ */
+const url =
+  process.env.TEST_REDIS_URL ?? process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 let reachable = false;
 

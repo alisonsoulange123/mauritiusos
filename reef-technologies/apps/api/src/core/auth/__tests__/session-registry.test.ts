@@ -13,7 +13,17 @@ import type { ConfigService } from '../../config/config.service.js';
  * nothing is listening rather than failing a `pnpm verify` on a laptop with no
  * infrastructure up.
  */
-const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
+/*
+ * `TEST_REDIS_URL` first, and a default that is only a convenience.
+ *
+ * These tests write and delete keys. Falling straight through to
+ * `localhost:6379` means that on a machine where another project already owns
+ * that port — which is the normal state of a developer's laptop — a test run
+ * reaches into somebody else's Redis. Naming a test-specific variable makes
+ * the target a decision rather than an accident.
+ */
+const url =
+  process.env.TEST_REDIS_URL ?? process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 let reachable = false;
 

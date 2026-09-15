@@ -11,7 +11,11 @@ services:
       POSTGRES_USER: reef_technologies
       POSTGRES_PASSWORD: reef_technologies
       POSTGRES_DB: reef_technologies
-    ports: ['5432:5432']
+    # Configurable because 5432 is the first port any other Postgres takes.
+    # Set POSTGRES_PORT in the repository-root `.env` to move it; the services
+    # reach each other by name on the compose network either way, so only your
+    # own psql and your `.env` URLs care.
+    ports: ['${POSTGRES_PORT:-5432}:5432']
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
@@ -26,7 +30,7 @@ services:
     # AOF on: the event streams are durable state, not a cache. Losing them on
     # a container restart would lose in-flight events.
     command: redis-server --appendonly yes
-    ports: ['6379:6379']
+    ports: ['${REDIS_PORT:-6379}:6379']
     volumes:
       - redis-data:/data
     healthcheck:

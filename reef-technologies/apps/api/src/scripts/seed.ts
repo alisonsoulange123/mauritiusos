@@ -22,7 +22,18 @@ if (process.env.NODE_ENV === 'production') {
   throw new Error('Refusing to seed a production database.');
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+/*
+ * The OWNER connection, like migrations — not the application's.
+ *
+ * Row-level security binds the application role, and the seed writes rows for
+ * a tenant it is in the middle of creating, with no tenant context set. As the
+ * app role every insert after the first is refused with "new row violates
+ * row-level security policy", which is the policies working exactly as
+ * intended and the seed asking for the wrong credentials.
+ */
+const pool = new Pool({
+  connectionString: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+});
 
 async function seed(): Promise<void> {
   const tenantId = randomUUID();

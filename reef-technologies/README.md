@@ -34,7 +34,13 @@ API contract, ERD, security/multi-tenancy model and engineering standards.
 ```bash
 pnpm install
 pnpm infra:up                                   # postgres (pgvector) + redis
+# Ports 5432/6379 already busy? Put POSTGRES_PORT / REDIS_PORT in
+# infrastructure/docker/.env — compose reads it from beside the compose file,
+# not from the repository root — then match them in apps/*/.env.
 cp apps/api/.env.example apps/api/.env          # then set JWT_SECRET
+# Two database URLs, deliberately: DATABASE_URL is the unprivileged role that
+# row-level security binds, MIGRATION_DATABASE_URL the owner that db:migrate
+# and seed need. Connecting the app as the owner silently disables isolation.
 cp apps/web/.env.example apps/web/.env.local
 cp apps/ai-worker/.env.example apps/ai-worker/.env
 
