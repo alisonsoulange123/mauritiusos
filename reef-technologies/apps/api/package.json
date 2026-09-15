@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio",
     "openapi:export": "tsx src/scripts/export-openapi.ts",
     "seed": "tsx src/scripts/seed.ts",
+    "provision": "tsx src/scripts/provision-tenant.ts",
     "test:integration": "nest build && vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {

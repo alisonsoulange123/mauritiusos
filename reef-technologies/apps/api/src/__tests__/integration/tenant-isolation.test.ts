@@ -166,3 +166,49 @@ describe('policy coverage', () => {
     expect(rows.map((row) => row.table_name)).toEqual([]);
   });
 });
+
+describe('tenant lifecycle', () => {
+  withApi('serves nothing for a tenant still being provisioned', async (api) => {
+    /*
+     * Why provisioning creates the tenant as `provisioning` and flips it to
+     * `active` only once its first administrator exists.
+     *
+     * The resolver accepts active tenants only, so a provisioning run that
+     * dies half way leaves something an operator can see and the internet
+     * cannot reach — rather than a live tenant with no way in. This asserts
+     * the half-built state really is closed, which is what makes that ordering
+     * worth anything.
+     */
+    const slug = `${api.tenant}-halfbuilt`;
+    await api.pool.query(
+      `INSERT INTO tenants (slug, name, country, default_locale, supported_locales, currency, timezone, status)
+       VALUES ($1, $1, 'MU', 'en', '["en"]'::jsonb, 'MUR', 'Indian/Mauritius', 'provisioning')`,
+      [slug],
+    );
+
+    try {
+      const response = await api.request('/auth/me', { tenant: slug });
+      // Refused at the tenancy middleware, before authentication is consulted.
+      expect(response.status).toBe(400);
+    } finally {
+      await api.pool.query('DELETE FROM tenants WHERE slug = $1', [slug]);
+    }
+  });
+
+  withApi('serves a suspended tenant nothing either', async (api) => {
+    // Same gate, used for the opposite reason: switching a tenant off must
+    // take effect without a deploy.
+    const slug = `${api.tenant}-suspended`;
+    await api.pool.query(
+      `INSERT INTO tenants (slug, name, country, default_locale, supported_locales, currency, timezone, status)
+       VALUES ($1, $1, 'MU', 'en', '["en"]'::jsonb, 'MUR', 'Indian/Mauritius', 'suspended')`,
+      [slug],
+    );
+
+    try {
+      expect((await api.request('/auth/me', { tenant: slug })).status).toBe(400);
+    } finally {
+      await api.pool.query('DELETE FROM tenants WHERE slug = $1', [slug]);
+    }
+  });
+});

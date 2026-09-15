@@ -35,6 +35,44 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # ── Provision ────────────────────────────────────────────────────────────
+  # The step a REAL environment runs instead of `seed`. Behind a profile, so it
+  # never fires as part of an ordinary `up` — provisioning is a deliberate,
+  # once-per-environment act, not something a restart should repeat:
+  #
+  #   TENANT_SLUG=portugal TENANT_NAME=Portugal TENANT_COUNTRY=PT \
+  #   TENANT_ADMIN_EMAIL=ops@example.com \
+  #   docker compose --profile provision run --rm provision
+  #
+  # It is idempotent, prints a generated administrator password once, and
+  # creates no demo data. Connects as the OWNER because it writes a table
+  # row-level security protects and there is no tenant context yet — the tenant
+  # is what it is creating.
+  provision:
+    profiles: ['provision']
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: migrator
+    working_dir: /app/apps/api
+    command: ['/app/apps/api/node_modules/.bin/tsx', 'src/scripts/provision-tenant.ts']
+    environment:
+      MIGRATION_DATABASE_URL: postgres://reef_technologies:reef_technologies@postgres:5432/reef_technologies
+      TENANT_SLUG: ${TENANT_SLUG:?set TENANT_SLUG}
+      TENANT_NAME: ${TENANT_NAME:?set TENANT_NAME}
+      TENANT_COUNTRY: ${TENANT_COUNTRY:?set TENANT_COUNTRY (ISO 3166-1 alpha-2)}
+      TENANT_ADMIN_EMAIL: ${TENANT_ADMIN_EMAIL:?set TENANT_ADMIN_EMAIL}
+      # Omit to have one generated and printed once.
+      TENANT_ADMIN_PASSWORD: ${TENANT_ADMIN_PASSWORD:-}
+      TENANT_DEFAULT_LOCALE: ${TENANT_DEFAULT_LOCALE:-en}
+      TENANT_SUPPORTED_LOCALES: ${TENANT_SUPPORTED_LOCALES:-en}
+      TENANT_CURRENCY: ${TENANT_CURRENCY:-MUR}
+      TENANT_TIMEZONE: ${TENANT_TIMEZONE:-Indian/Mauritius}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
   # ── Seed ─────────────────────────────────────────────────────────────────
   # Development data, and the thing that makes this stack usable at all: a
   # migrated database has no tenant row, so every request is rejected with 400

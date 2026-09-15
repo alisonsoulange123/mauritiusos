@@ -268,10 +268,13 @@ just compiled. What was confirmed:
 | Tenant isolation is enforced by Postgres | 15 policies live; as the application role, `SELECT email FROM identity_users` with no WHERE clause returns only the current tenant's rows, an INSERT into another tenant is refused, and a connection with no tenant set reads an empty database |
 | A future module cannot quietly opt out | a test asserts every table carrying `tenant_id` has RLS enabled and a policy, so a new module that forgets one fails CI rather than shipping a gap |
 
+| An environment can be stood up from nothing | migrate → provision → the API serves: the provisioned administrator signs in, `/auth/me` returns them as a verified admin, and the same token is refused 403 against another tenant |
+| A half-provisioned tenant is closed | created as `provisioning` and activated last, so an interrupted run leaves a tenant no request can reach rather than a live one with no way in — asserted, along with the same gate refusing a suspended tenant |
+
 | Capability outage degrades safely | with the API down the site keeps its features from a last-known-good snapshot; only a cold start with no snapshot reports "unavailable" |
 
 `pnpm verify` is green: boundaries clean, 0 type errors, 0 lint errors/warnings,
-144 unit tests across the TypeScript workspace, 30 in the Python worker and 36 HTTP integration tests, all three images building and running.
+144 unit tests across the TypeScript workspace, 30 in the Python worker and 38 HTTP integration tests, all three images building and running.
 
 The session-registry tests talk to a real Redis, because the part worth testing
 is a Lua compare-and-swap and a mock of it would only prove the mock agrees
@@ -357,12 +360,22 @@ to. `--target migrator` builds an image that can, and it connects as the schema
 cosmetic: Postgres row-level security is bypassed by table owners, so an API
 running as the owner would silently have no tenant isolation at all.
 
-**A migrated database serves nothing.** There is no tenant row, so the tenancy
-middleware rejects every request with 400. The `seed` service fills that gap for
-local use and refuses to run against production, by design. A real deployment
-needs a provisioning step that creates the tenant and its first administrator
-from supplied values — **that does not exist yet**, and it is the honest gap in
-this deployment story.
+**A migrated database serves nothing** until a tenant exists — every table is
+tenant-scoped and the middleware rejects what it cannot resolve. Two paths:
+
+```bash
+pnpm --filter @reef-technologies/api seed        # development: tenant + demo data
+pnpm --filter @reef-technologies/api provision \ # real environments
+  -- --slug=portugal --name=Portugal --country=PT --admin-email=ops@example.com
+```
+
+`provision` is the deliberate opposite of `seed`: it runs in production (the
+seed refuses to), creates no demo data, takes every value from you, and prints
+a generated administrator password once. It creates the tenant as
+`provisioning` and flips it to `active` only once its first administrator
+exists, so a run that dies half way leaves something an operator can see and
+the internet cannot reach. Re-running never overwrites settings or resets a
+password.
 
 **`NEXT_PUBLIC_API_BASE_URL` must be reachable from the server, not the
 browser.** Despite the prefix, every consumer runs inside the Next server; page
