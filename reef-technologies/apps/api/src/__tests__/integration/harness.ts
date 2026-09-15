@@ -31,7 +31,26 @@ import type { INestApplication } from '@nestjs/common';
  * which provides both services — runs them for real.
  */
 
-const DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgres://reef_technologies:reef_technologies@localhost:5432/reef_technologies';
+/**
+ * The OWNER connection. Used by the harness itself to provision and tear down
+ * a test tenant — and by nothing else, because row-level security is bypassed
+ * for a table's owner.
+ */
+const OWNER_URL =
+  process.env.TEST_DATABASE_URL ??
+  'postgres://reef_technologies:reef_technologies@localhost:5432/reef_technologies';
+
+/**
+ * The APPLICATION connection, which the booted app is given.
+ *
+ * Deliberately a different, unprivileged role, so the suite exercises the
+ * database policies rather than sailing past them. Falls back to the owner
+ * when no application role exists, which keeps the suite runnable — the test
+ * that asserts isolation checks its own connection and skips instead of
+ * passing vacuously.
+ */
+const APP_URL = process.env.TEST_APP_DATABASE_URL ?? OWNER_URL;
+
 const REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://localhost:6379';
 
 export interface Harness {
@@ -47,7 +66,12 @@ export interface Harness {
    * which would pass a test about isolation for entirely the wrong reason.
    */
   readonly otherTenant: string;
+  /** Owner connection: provisioning and assertions the app could not make. */
   readonly pool: Pool;
+  /** The connection the app uses — unprivileged, subject to RLS. */
+  readonly appPool: Pool;
+  /** Whether the app really is on a separate role, so RLS is in play. */
+  readonly rlsEnforced: boolean;
   request(path: string, init?: RequestInit & { token?: string; tenant?: string }): Promise<Response>;
   json<T>(path: string, init?: RequestInit & { token?: string; tenant?: string }): Promise<T>;
   close(): Promise<void>;
@@ -70,7 +94,7 @@ export interface HarnessOptions {
 
 /** Whether the infrastructure this suite needs is actually running. */
 export async function infrastructureAvailable(): Promise<boolean> {
-  const pool = new Pool({ connectionString: DATABASE_URL, connectionTimeoutMillis: 1500 });
+  const pool = new Pool({ connectionString: OWNER_URL, connectionTimeoutMillis: 1500 });
   try {
     await pool.query('SELECT 1');
     return true;
@@ -97,7 +121,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     // `staging` when a test wants the real limiter; see HarnessOptions.
     NODE_ENV: options.throttle ? 'staging' : 'test',
     LOG_LEVEL: 'error',
-    DATABASE_URL,
+    DATABASE_URL: APP_URL,
     REDIS_URL,
     JWT_SECRET: 'integration-test-secret-of-sufficient-length',
     DEFAULT_TENANT_SLUG: tenant,
@@ -113,7 +137,8 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     AUTH_REFRESH_GRACE_SECONDS: '1',
   });
 
-  const pool = new Pool({ connectionString: DATABASE_URL });
+  const pool = new Pool({ connectionString: OWNER_URL });
+  const appPool = new Pool({ connectionString: APP_URL });
   await provisionTenant(pool, tenant);
   await provisionTenant(pool, otherTenant);
 
@@ -153,6 +178,8 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     tenant,
     otherTenant,
     pool,
+    appPool,
+    rlsEnforced: APP_URL !== OWNER_URL,
     request,
     async json<T>(path: string, init?: RequestInit & { token?: string; tenant?: string }) {
       const response = await request(path, init);
@@ -164,6 +191,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       // leaves the developer's own database exactly as it was found.
       await cleanupTenant(pool, tenant).catch(() => undefined);
       await cleanupTenant(pool, otherTenant).catch(() => undefined);
+      await appPool.end().catch(() => undefined);
       await pool.end().catch(() => undefined);
     },
   };

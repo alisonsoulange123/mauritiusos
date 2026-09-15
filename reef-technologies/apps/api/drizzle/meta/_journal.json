@@ -15,6 +15,13 @@
       "when": 1789373293946,
       "tag": "0001_mushy_sunset_bain",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789460885213,
+      "tag": "0002_tenant_isolation",
+      "breakpoints": true
     }
   ]
 }

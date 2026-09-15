@@ -174,10 +174,25 @@ Core Platform + Country Packs: one codebase, many countries. Rules, knowledge,
 partners and locations are tenant-scoped rows, so adding Portugal is a data
 migration.
 
-Isolation is enforced three times: `TenantContext` rejects an unresolvable
-tenant in middleware, `withTenant()` in every repository, and Postgres
-row-level security underneath. The app connects as `reef_technologies_app`, never the
-table owner — owners bypass RLS.
+Isolation is enforced three times, and all three are real:
+
+1. `TenantContext` rejects an unresolvable tenant in middleware.
+2. `withTenant()` filters every repository query.
+3. Postgres row-level security underneath — 15 policies, applied by
+   `0002_tenant_isolation.sql`.
+
+The third one used to be documentation. A helper existed to emit the policies
+and nothing ever called it, so a repository that forgot its filter had nothing
+beneath it. Closing that needed more than the migration: the policies read a
+session variable that only `runAsTenant` was setting, which covered eleven
+write paths and none of the thirty-five reads — enabling them without that fix
+makes every read return nothing. The pool now sets the tenant on each
+connection as it is checked out, so no call site can forget.
+
+The app connects as `reef_technologies_app`, never the table owner, because
+Postgres bypasses RLS for a table's owner — an API holding the owner's
+credentials would silently switch the whole layer off. Migrations and the seed
+use `MIGRATION_DATABASE_URL` instead.
 
 ## Verified behaviour
 
@@ -250,10 +265,13 @@ just compiled. What was confirmed:
 | Test code no longer ships | **fixed**: `tsconfig.json` had no `exclude`, so `nest build` compiled every `__tests__` directory into `dist/`, and the Docker image copies `dist` wholesale — the production artifact contained the suite, its fixtures and the harness that boots the app with a chosen configuration |
 | The rate-limit bug cannot come back | a dedicated suite boots with the limiter live: login stops at exactly ten guesses a minute while fifteen ordinary reads all succeed |
 
+| Tenant isolation is enforced by Postgres | 15 policies live; as the application role, `SELECT email FROM identity_users` with no WHERE clause returns only the current tenant's rows, an INSERT into another tenant is refused, and a connection with no tenant set reads an empty database |
+| A future module cannot quietly opt out | a test asserts every table carrying `tenant_id` has RLS enabled and a policy, so a new module that forgets one fails CI rather than shipping a gap |
+
 | Capability outage degrades safely | with the API down the site keeps its features from a last-known-good snapshot; only a cold start with no snapshot reports "unavailable" |
 
 `pnpm verify` is green: boundaries clean, 0 type errors, 0 lint errors/warnings,
-144 unit tests across the TypeScript workspace, 30 in the Python worker and 31 HTTP integration tests, all three images building and running.
+144 unit tests across the TypeScript workspace, 30 in the Python worker and 36 HTTP integration tests, all three images building and running.
 
 The session-registry tests talk to a real Redis, because the part worth testing
 is a Lua compare-and-swap and a mock of it would only prove the mock agrees

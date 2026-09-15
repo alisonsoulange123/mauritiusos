@@ -39,14 +39,25 @@ export function withTenant<T extends TenantScopedTable>(
 export const tenantValues = (tenantId: string) => ({ tenantId });
 
 /**
- * Emits the RLS policy for a table. Run once per table in a migration; the
- * session variable is set per connection by the Drizzle provider.
+ * Emits the RLS policy for a table — for a NEW module's migration.
+ *
+ * The existing tables are covered by `0002_tenant_isolation.sql`, which is the
+ * source of truth; this exists so a module adding a tenant-scoped table has
+ * the same policy to paste rather than one reinvented slightly differently.
+ *
+ * Note what it deliberately does NOT emit: `FORCE ROW LEVEL SECURITY`. The
+ * policy binds the application role, not the table owner, because migrations
+ * and the seed run as the owner with no tenant set — forcing it would make
+ * seeding fail on its first insert. Owner bypass is the reason the app is
+ * given a separate unprivileged role, not a gap in it.
+ *
+ * A tenant-scoped table that never gets this is caught by the integration
+ * suite, which asserts that every table carrying `tenant_id` has a policy.
  */
 export const rlsPolicyFor = (tableName: string): string => `
 ALTER TABLE "${tableName}" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "${tableName}" FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "${tableName}_tenant_isolation" ON "${tableName}";
 CREATE POLICY "${tableName}_tenant_isolation" ON "${tableName}"
-  USING (tenant_id = current_setting('reef_technologies.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('reef_technologies.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('reef_technologies.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('reef_technologies.tenant_id', true), '')::uuid);
 `;
