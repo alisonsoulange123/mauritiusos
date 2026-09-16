@@ -30,23 +30,23 @@ describe('safeRedirect', () => {
 describe('isSameOrigin', () => {
   it('accepts a matching origin, port included', () => {
     expect(isSameOrigin('http://localhost:3000', 'localhost:3000')).toBe(true);
-    expect(isSameOrigin('https://app.reef_technologies.io', 'app.reef_technologies.io')).toBe(true);
+    expect(isSameOrigin('https://app.reef-technologies.io', 'app.reef-technologies.io')).toBe(true);
   });
 
   it('rejects another origin', () => {
-    expect(isSameOrigin('https://evil.example', 'app.reef_technologies.io')).toBe(false);
+    expect(isSameOrigin('https://evil.example', 'app.reef-technologies.io')).toBe(false);
     // Same host, different port is a different origin — and on a dev machine
     // that is exactly where another app would be listening.
     expect(isSameOrigin('http://localhost:4000', 'localhost:3000')).toBe(false);
     // Prefix match is not a host match.
-    expect(isSameOrigin('https://reef_technologies.io.evil.example', 'reef_technologies.io')).toBe(false);
+    expect(isSameOrigin('https://reef-technologies.io.evil.example', 'reef-technologies.io')).toBe(false);
   });
 
   it('rejects a missing or unparseable origin', () => {
     // A cross-site POST from a form element sends no Origin in some browsers,
     // and a sandboxed frame sends the literal string "null".
-    expect(isSameOrigin(null, 'app.reef_technologies.io')).toBe(false);
-    expect(isSameOrigin('null', 'app.reef_technologies.io')).toBe(false);
-    expect(isSameOrigin('https://app.reef_technologies.io', null)).toBe(false);
+    expect(isSameOrigin(null, 'app.reef-technologies.io')).toBe(false);
+    expect(isSameOrigin('null', 'app.reef-technologies.io')).toBe(false);
+    expect(isSameOrigin('https://app.reef-technologies.io', null)).toBe(false);
   });
 });

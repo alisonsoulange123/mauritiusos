@@ -34,7 +34,18 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
  * cannot read: the proxy attaches the bearer server-side. See
  * `shared/auth/session-cookie` for why the token is out of reach at all.
  */
-const BROWSER_PROXY = '/api/reef_technologies';
+/*
+ * Must match the route directory at `app/api/reef-technologies/` exactly.
+ *
+ * A rename once left this as `/api/reef_technologies` while the folder became
+ * kebab-case. Every browser-side call then hit Next's own 404 page, whose body
+ * is not the API error envelope — so the UI reported "the API returned 404
+ * with an unrecognized body" and nothing pointed at the real cause. Server
+ * rendering was unaffected, which is why the pages still loaded.
+ *
+ * `proxy-route.test.ts` asserts the two agree.
+ */
+const BROWSER_PROXY = '/api/reef-technologies';
 
 const isServer = () => typeof window === 'undefined';
 

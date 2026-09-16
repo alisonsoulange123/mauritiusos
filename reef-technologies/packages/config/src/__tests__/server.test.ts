@@ -47,8 +47,8 @@ describe('loadServerEnv', () => {
       EVENT_BUS_DRIVER: 'redis',
       DATABASE_SSL: 'true',
       TENANT_STRICT: 'true',
-      CORS_ORIGINS: 'https://reef_technologies.mu',
-      APP_PUBLIC_URL: 'https://reef_technologies.mu',
+      CORS_ORIGINS: 'https://reef-technologies.mu',
+      APP_PUBLIC_URL: 'https://reef-technologies.mu',
     };
 
     expect(() => loadServerEnv({ source: { ...production, MAIL_TRANSPORT: 'log' } })).toThrow(
@@ -64,7 +64,7 @@ describe('loadServerEnv', () => {
           NODE_ENV: 'production',
           EVENT_BUS_DRIVER: 'redis',
           DATABASE_SSL: 'true',
-          CORS_ORIGINS: 'https://reef_technologies.mu',
+          CORS_ORIGINS: 'https://reef-technologies.mu',
           MAIL_TRANSPORT: 'http',
           MAIL_HTTP_ENDPOINT: 'https://mail.example/send',
           MAIL_HTTP_TOKEN: 'tok',
